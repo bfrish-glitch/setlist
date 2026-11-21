@@ -28,7 +28,7 @@ export const apple = placeholder(
   'apple',
   'Apple Music',
   '#fa243c',
-  'Next up. Uses MusicKit JS; each person signs in with their own Apple ID and subscription.',
+  'Parked for now. Needs an Apple Developer account to switch on.',
 );
 
 export const nugs = placeholder(

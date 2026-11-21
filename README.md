@@ -30,20 +30,21 @@ Tracks from a service you haven't connected show dimmed and get skipped, so a sh
 | Service | Status | Notes |
 |---|---|---|
 | Relisten | ✅ Working | Open API, no login. Streams from archive.org / phish.in. |
-| Apple Music | Next | MusicKit JS. Needs an Apple Developer account ($99/yr) to sign tokens. Anyone with a subscription can use it. |
+| Apple Music | Parked | MusicKit JS. Needs an Apple Developer account ($99/yr) to sign tokens. Anyone with a subscription can use it. |
 | Spotify | ✅ Built | Search, Liked Songs, your playlists. Plays in the browser via the Web Playback SDK; if that can't start (some iPhones), it drives the Spotify app instead. Premium required. Dev-mode apps are capped at **5 allowlisted users**, added in the Spotify dashboard under User Management. |
 | nugs.net | Planned | No public API. Needs a small server that signs in for each person and fetches stream URLs. Against their ToS and can break when they change things. |
 | YouTube | Maybe | IFrame player. The video has to stay visible and won't play with the phone locked. |
 
 ## Roadmap
 
-1. **Apple Music adapter.** Add a tiny serverless function (Cloudflare Worker or Vercel) that signs the MusicKit developer token, so the private key never lives in this repo.
-2. **Spotify artist & album pages.** Tap into an artist (top songs, albums) or an album from search, then play or add the whole thing. Search is songs-only today, capped at 10 results by Spotify's dev mode.
-3. **Cross-service search.** One search box that queries every connected service and shows results tagged by source.
-4. **Shared playlists.** Move playlists from the browser into a small database so family members see the same lists. Until then, use *Share* to send a playlist file.
-5. **nugs.net adapter** on the same small server.
-6. **Auto-match.** When a track's service isn't connected, look up the same song on one you do have.
-7. **YouTube** as a fallback for rare tracks.
+1. **Spotify artist & album pages.** Tap into an artist (top songs, albums) or an album from search, then play or add the whole thing. Search is songs-only today, capped at 10 results by Spotify's dev mode.
+2. **Cross-service search.** One search box that queries every connected service and shows results tagged by source.
+3. **Shared playlists.** Move playlists from the browser into a small database so family members see the same lists. Until then, use *Share* to send a playlist file.
+4. **nugs.net adapter** on the same small server.
+5. **Auto-match.** When a track's service isn't connected, look up the same song on one you do have.
+6. **YouTube** as a fallback for rare tracks.
+
+**Parked:** **Apple Music.** Needs an Apple Developer account ($99/yr). Add a tiny serverless function (Cloudflare Worker or Vercel) that signs the MusicKit developer token, so the private key never lives in this repo.
 
 ## Develop
 
