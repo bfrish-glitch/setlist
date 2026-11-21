@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { SpotifyBrowse } from './SpotifyBrowse';
 import type { Track } from '../types';
 import {
   bestSource,
@@ -18,7 +19,33 @@ type View =
   | { kind: 'year'; artist: RelistenArtist; year: string }
   | { kind: 'show'; artist: RelistenArtist; show: RelistenShow };
 
+type Catalog = 'relisten' | 'spotify';
+
 export function Browse({ onAdd }: { onAdd: (tracks: Track[]) => void }) {
+  const [catalog, setCatalog] = useState<Catalog>('relisten');
+  const switcher = (
+    <div className="segmented">
+      {(['relisten', 'spotify'] as const).map((c) => (
+        <button key={c} className={catalog === c ? 'on' : ''} onClick={() => setCatalog(c)}>
+          {c === 'relisten' ? 'Relisten' : 'Spotify'}
+        </button>
+      ))}
+    </div>
+  );
+  // Both stay mounted so each keeps its place when you flip between them.
+  return (
+    <>
+      <div hidden={catalog !== 'relisten'}>
+        <RelistenBrowse onAdd={onAdd} switcher={switcher} />
+      </div>
+      <div hidden={catalog !== 'spotify'}>
+        <SpotifyBrowse onAdd={onAdd} switcher={switcher} />
+      </div>
+    </>
+  );
+}
+
+function RelistenBrowse({ onAdd, switcher }: { onAdd: (tracks: Track[]) => void; switcher: ReactNode }) {
   const [stack, setStack] = useState<View[]>([{ kind: 'artists' }]);
   const view = stack[stack.length - 1];
   const push = (v: View) => setStack((s) => [...s, v]);
@@ -26,7 +53,7 @@ export function Browse({ onAdd }: { onAdd: (tracks: Track[]) => void }) {
 
   switch (view.kind) {
     case 'artists':
-      return <Artists onPick={(artist) => push({ kind: 'artist', artist })} />;
+      return <Artists switcher={switcher} onPick={(artist) => push({ kind: 'artist', artist })} />;
     case 'artist':
       return (
         <Artist
@@ -50,7 +77,7 @@ export function Browse({ onAdd }: { onAdd: (tracks: Track[]) => void }) {
   }
 }
 
-function Artists({ onPick }: { onPick: (a: RelistenArtist) => void }) {
+function Artists({ onPick, switcher }: { onPick: (a: RelistenArtist) => void; switcher: ReactNode }) {
   const { data, error, loading } = useAsync(relistenApi.artists, []);
   const [q, setQ] = useState('');
   const list = useMemo(() => {
@@ -65,6 +92,7 @@ function Artists({ onPick }: { onPick: (a: RelistenArtist) => void }) {
   return (
     <>
       <Header title="Relisten" />
+      {switcher}
       <input
         className="search"
         placeholder="Find an artist (Grateful Dead, Phish, Goose…)"

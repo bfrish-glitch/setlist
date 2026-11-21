@@ -31,13 +31,6 @@ export const apple = placeholder(
   'Next up. Uses MusicKit JS; each person signs in with their own Apple ID and subscription.',
 );
 
-export const spotify = placeholder(
-  'spotify',
-  'Spotify',
-  '#1db954',
-  'Web Playback SDK. Premium required, and Spotify caps dev apps at 5 allowlisted people.',
-);
-
 export const nugs = placeholder(
   'nugs',
   'nugs.net',

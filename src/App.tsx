@@ -6,6 +6,7 @@ import { Queue } from './components/Queue';
 import { Services } from './components/Services';
 import { NowPlaying } from './components/NowPlaying';
 import { AddToPlaylist } from './components/AddToPlaylist';
+import { handleSpotifyRedirect, spotify } from './sources/spotify';
 
 type Tab = 'browse' | 'playlists' | 'queue' | 'services';
 const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -19,6 +20,17 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('browse');
   const [adding, setAdding] = useState<Track[] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Finish a Spotify login if we just came back from accounts.spotify.com.
+  useEffect(() => {
+    void handleSpotifyRedirect().then((msg) => {
+      if (msg) {
+        setToast(msg);
+        if (msg === 'Spotify connected') setTab('browse');
+      }
+      void spotify.warmUp();
+    });
+  }, []);
 
   useEffect(() => {
     if (!toast) return;

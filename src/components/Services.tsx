@@ -1,9 +1,11 @@
 import { sourceOrder, sources } from '../sources';
 import { Header } from './common';
+import { useSourcesVersion } from '../sources/changes';
 
 const label = { ready: 'Ready', 'needs-login': 'Sign in', 'coming-soon': 'Coming soon' } as const;
 
 export function Services() {
+  useSourcesVersion();
   return (
     <>
       <Header title="Services" />
@@ -22,6 +24,13 @@ export function Services() {
                 <button className="primary small" onClick={() => s.connect!()}>
                   Connect
                 </button>
+              ) : status === 'ready' && s.disconnect ? (
+                <span className="svc-actions">
+                  <span className={`pill ${status}`}>{label[status]}</span>
+                  <button className="link small-link" onClick={() => s.disconnect!()}>
+                    Sign out
+                  </button>
+                </span>
               ) : (
                 <span className={`pill ${status}`}>{label[status]}</span>
               )}

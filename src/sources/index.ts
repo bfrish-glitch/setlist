@@ -1,7 +1,8 @@
 import type { SourceId } from '../types';
 import type { SourceAdapter } from './types';
 import { relisten } from './relisten';
-import { apple, nugs, spotify, youtube } from './placeholders';
+import { spotify } from './spotify';
+import { apple, nugs, youtube } from './placeholders';
 
 export const sources: Record<SourceId, SourceAdapter> = {
   relisten,
@@ -11,6 +12,6 @@ export const sources: Record<SourceId, SourceAdapter> = {
   youtube,
 };
 
-export const sourceOrder: SourceId[] = ['relisten', 'apple', 'spotify', 'nugs', 'youtube'];
+export const sourceOrder: SourceId[] = ['relisten', 'spotify', 'apple', 'nugs', 'youtube'];
 
 export const canPlay = (id: SourceId) => sources[id].status() === 'ready';
