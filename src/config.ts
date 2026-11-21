@@ -3,7 +3,7 @@
  * to ship in browser code (PKCE login, no client secret).
  */
 // Paste the Client ID from developer.spotify.com/dashboard here.
-const SPOTIFY_CLIENT_ID_DEFAULT = '';
+const SPOTIFY_CLIENT_ID_DEFAULT = '2e15c2be1c93454d914e0499b4bea914';
 export const SPOTIFY_CLIENT_ID: string = import.meta.env.VITE_SPOTIFY_CLIENT_ID || SPOTIFY_CLIENT_ID_DEFAULT;
 
 /** Where Spotify sends people back after login. Must match the dashboard exactly. */
