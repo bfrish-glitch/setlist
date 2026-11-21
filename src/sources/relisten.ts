@@ -1,5 +1,6 @@
 import { newKey, type Track } from '../types';
 import type { PlaybackEvents, SourceAdapter } from './types';
+import { sharedAudio } from './audio';
 
 /* ------------------------------------------------------------------ */
 /* Relisten API (https://api.relisten.net, open CORS, no auth)          */
@@ -133,8 +134,6 @@ class RelistenAdapter implements SourceAdapter {
   id = 'relisten' as const;
   name = 'Relisten';
   color = '#3fb68b';
-  private audio: HTMLAudioElement | null = null;
-  private detach: (() => void) | null = null;
 
   status() {
     return 'ready' as const;
@@ -143,55 +142,21 @@ class RelistenAdapter implements SourceAdapter {
     return 'No account needed. Live shows from archive.org and phish.in.';
   }
 
-  private el() {
-    if (!this.audio) {
-      this.audio = new Audio();
-      this.audio.preload = 'auto';
-    }
-    return this.audio;
-  }
-
   async play(track: Track, ev: PlaybackEvents) {
     if (!track.streamUrl) throw new Error('This Relisten track has no stream URL');
-    const a = this.el();
-    this.detach?.();
-    const onTime = () => ev.onTime(a.currentTime, a.duration || track.durationSec || 0);
-    const onEnded = () => ev.onEnded();
-    const onPlay = () => ev.onPlayingChange(true);
-    const onPause = () => ev.onPlayingChange(false);
-    const onError = () => ev.onError('Could not load this recording');
-    a.addEventListener('timeupdate', onTime);
-    a.addEventListener('ended', onEnded);
-    a.addEventListener('play', onPlay);
-    a.addEventListener('pause', onPause);
-    a.addEventListener('error', onError);
-    this.detach = () => {
-      a.removeEventListener('timeupdate', onTime);
-      a.removeEventListener('ended', onEnded);
-      a.removeEventListener('play', onPlay);
-      a.removeEventListener('pause', onPause);
-      a.removeEventListener('error', onError);
-    };
-    a.src = track.streamUrl;
-    await a.play();
+    await sharedAudio.play(track.streamUrl, track.durationSec, ev, 'Could not load this recording');
   }
   pause() {
-    this.audio?.pause();
+    sharedAudio.pause();
   }
   resume() {
-    void this.audio?.play();
+    sharedAudio.resume();
   }
   seek(sec: number) {
-    if (this.audio) this.audio.currentTime = sec;
+    sharedAudio.seek(sec);
   }
   stop() {
-    this.detach?.();
-    this.detach = null;
-    if (this.audio) {
-      this.audio.pause();
-      this.audio.removeAttribute('src');
-      this.audio.load();
-    }
+    sharedAudio.stop();
   }
 }
 

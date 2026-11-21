@@ -8,3 +8,10 @@ export const SPOTIFY_CLIENT_ID: string = import.meta.env.VITE_SPOTIFY_CLIENT_ID 
 
 /** Where Spotify sends people back after login. Must match the dashboard exactly. */
 export const appUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin).toString();
+
+/**
+ * The nugs relay (worker/ in this repo, deployed to Cloudflare).
+ * Format: https://setlist-nugs.<your-subdomain>.workers.dev
+ */
+const NUGS_RELAY_DEFAULT = '';
+export const NUGS_RELAY: string = (import.meta.env.VITE_NUGS_RELAY || NUGS_RELAY_DEFAULT).replace(/\/$/, '');

@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { SpotifyBrowse } from './SpotifyBrowse';
+import { NugsBrowse } from './NugsBrowse';
 import type { Track } from '../types';
 import {
   bestSource,
@@ -19,15 +20,16 @@ type View =
   | { kind: 'year'; artist: RelistenArtist; year: string }
   | { kind: 'show'; artist: RelistenArtist; show: RelistenShow };
 
-type Catalog = 'relisten' | 'spotify';
+type Catalog = 'relisten' | 'nugs' | 'spotify';
+const catalogNames: Record<Catalog, string> = { relisten: 'Relisten', nugs: 'nugs', spotify: 'Spotify' };
 
-export function Browse({ onAdd }: { onAdd: (tracks: Track[]) => void }) {
+export function Browse({ onAdd, onNugsLogin }: { onAdd: (tracks: Track[]) => void; onNugsLogin: () => void }) {
   const [catalog, setCatalog] = useState<Catalog>('relisten');
   const switcher = (
     <div className="segmented">
-      {(['relisten', 'spotify'] as const).map((c) => (
+      {(['relisten', 'nugs', 'spotify'] as const).map((c) => (
         <button key={c} className={catalog === c ? 'on' : ''} onClick={() => setCatalog(c)}>
-          {c === 'relisten' ? 'Relisten' : 'Spotify'}
+          {catalogNames[c]}
         </button>
       ))}
     </div>
@@ -37,6 +39,9 @@ export function Browse({ onAdd }: { onAdd: (tracks: Track[]) => void }) {
     <>
       <div hidden={catalog !== 'relisten'}>
         <RelistenBrowse onAdd={onAdd} switcher={switcher} />
+      </div>
+      <div hidden={catalog !== 'nugs'}>
+        <NugsBrowse onAdd={onAdd} switcher={switcher} onLogin={onNugsLogin} />
       </div>
       <div hidden={catalog !== 'spotify'}>
         <SpotifyBrowse onAdd={onAdd} switcher={switcher} />

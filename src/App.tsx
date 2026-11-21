@@ -7,6 +7,7 @@ import { Services } from './components/Services';
 import { NowPlaying } from './components/NowPlaying';
 import { AddToPlaylist } from './components/AddToPlaylist';
 import { handleSpotifyRedirect, spotify } from './sources/spotify';
+import { NugsLogin } from './components/NugsLogin';
 
 type Tab = 'browse' | 'playlists' | 'queue' | 'services';
 const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -20,6 +21,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('browse');
   const [adding, setAdding] = useState<Track[] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [nugsLogin, setNugsLogin] = useState(false);
+  const openNugsLogin = () => setNugsLogin(true);
 
   // Finish a Spotify login if we just came back from accounts.spotify.com.
   useEffect(() => {
@@ -43,11 +46,11 @@ export default function App() {
       <main>
         {/* Keep Browse mounted so you don't lose your place when switching tabs. */}
         <div hidden={tab !== 'browse'}>
-          <Browse onAdd={setAdding} />
+          <Browse onAdd={setAdding} onNugsLogin={openNugsLogin} />
         </div>
         {tab === 'playlists' && <Playlists />}
         {tab === 'queue' && <Queue onAdd={setAdding} />}
-        {tab === 'services' && <Services />}
+        {tab === 'services' && <Services onNugsLogin={openNugsLogin} />}
       </main>
       <footer>
         <NowPlaying />
@@ -65,6 +68,14 @@ export default function App() {
           tracks={adding}
           onClose={(msg) => {
             setAdding(null);
+            if (msg) setToast(msg);
+          }}
+        />
+      )}
+      {nugsLogin && (
+        <NugsLogin
+          onClose={(msg) => {
+            setNugsLogin(false);
             if (msg) setToast(msg);
           }}
         />

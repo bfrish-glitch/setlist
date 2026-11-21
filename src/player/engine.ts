@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Track } from '../types';
 import { canPlay, sources } from '../sources';
+import { sharedAudio } from '../sources/audio';
 
 export interface PlayerState {
   queue: Track[];
@@ -52,6 +53,9 @@ class PlayerEngine {
 
   /** Replace the queue and start at `startIndex`. */
   playQueue(queue: Track[], startIndex = 0) {
+    // Unlock the shared audio element during this tap, so a later handoff
+    // from Spotify to Relisten/nugs can start without another tap.
+    sharedAudio.prime();
     this.stopCurrent();
     this.set({ queue, index: -1, skipped: [], error: null });
     void this.goTo(startIndex, 1);

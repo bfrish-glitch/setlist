@@ -4,7 +4,7 @@ import { useSourcesVersion } from '../sources/changes';
 
 const label = { ready: 'Ready', 'needs-login': 'Sign in', 'coming-soon': 'Coming soon' } as const;
 
-export function Services() {
+export function Services({ onNugsLogin }: { onNugsLogin: () => void }) {
   useSourcesVersion();
   return (
     <>
@@ -20,8 +20,8 @@ export function Services() {
                 <span className="title">{s.name}</span>
                 <span className="sub">{s.statusNote()}</span>
               </span>
-              {status === 'needs-login' && s.connect ? (
-                <button className="primary small" onClick={() => s.connect!()}>
+              {status === 'needs-login' && (s.connect || id === 'nugs') ? (
+                <button className="primary small" onClick={() => (id === 'nugs' ? onNugsLogin() : s.connect!())}>
                   Connect
                 </button>
               ) : status === 'ready' && s.disconnect ? (

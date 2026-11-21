@@ -31,13 +31,6 @@ export const apple = placeholder(
   'Parked for now. Needs an Apple Developer account to switch on.',
 );
 
-export const nugs = placeholder(
-  'nugs',
-  'nugs.net',
-  '#e85d2a',
-  'No official API, so this needs a small server that signs in for each person. Can break when nugs changes things.',
-);
-
 export const youtube = placeholder(
   'youtube',
   'YouTube',
