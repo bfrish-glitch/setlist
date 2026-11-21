@@ -13,5 +13,5 @@ export const appUrl = () => new URL(import.meta.env.BASE_URL, window.location.or
  * The nugs relay (worker/ in this repo, deployed to Cloudflare).
  * Format: https://setlist-nugs.<your-subdomain>.workers.dev
  */
-const NUGS_RELAY_DEFAULT = '';
+const NUGS_RELAY_DEFAULT = 'https://setlist-nugs.bfrish.workers.dev';
 export const NUGS_RELAY: string = (import.meta.env.VITE_NUGS_RELAY || NUGS_RELAY_DEFAULT).replace(/\/$/, '');
