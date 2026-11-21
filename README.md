@@ -1,0 +1,56 @@
+# Setlist
+
+One music player for every service you pay for (and the free ones), with playlists that mix sources song by song. Built for friends and family, not the public.
+
+**Live app:** https://bfrish-glitch.github.io/setlist/ (on your phone, open it and use *Add to Home Screen*)
+
+## How it works
+
+Setlist never touches the audio from paid services. Each service plays through its own official player, and Setlist is the conductor: a playlist is just a list of `{ source, sourceId, title, … }` entries, and when one track ends the player hands off to whichever service owns the next one.
+
+```
+src/
+  types.ts               Track + Playlist shapes shared by everything
+  sources/
+    types.ts             SourceAdapter interface every service implements
+    relisten.ts          Relisten API client + <audio> playback (working)
+    placeholders.ts      Apple Music, Spotify, nugs.net, YouTube slots
+    index.ts             Registry the player looks up by track.source
+  player/engine.ts       Queue, next/prev, cross-source handoff, lock-screen controls
+  store/playlists.ts     Playlists in localStorage + JSON export/import for sharing
+  components/            Browse, Playlists, Queue, Services, Now Playing
+```
+
+Tracks from a service you haven't connected show dimmed and get skipped, so a shared playlist still plays for someone who only has some of the services.
+
+## Status
+
+| Service | Status | Notes |
+|---|---|---|
+| Relisten | ✅ Working | Open API, no login. Streams from archive.org / phish.in. |
+| Apple Music | Next | MusicKit JS. Needs an Apple Developer account ($99/yr) to sign tokens. Anyone with a subscription can use it. |
+| Spotify | Planned | Web Playback SDK. Premium required. Dev-mode apps are capped at **5 allowlisted users**, added by email in the Spotify dashboard. |
+| nugs.net | Planned | No public API. Needs a small server that signs in for each person and fetches stream URLs. Against their ToS and can break when they change things. |
+| YouTube | Maybe | IFrame player. The video has to stay visible and won't play with the phone locked. |
+
+## Roadmap
+
+1. **Apple Music adapter.** Add a tiny serverless function (Cloudflare Worker or Vercel) that signs the MusicKit developer token, so the private key never lives in this repo.
+2. **Spotify adapter.** Web Playback SDK + PKCE login (no server needed). Only the client ID goes in the code; that's safe to publish.
+3. **Cross-service search.** One search box that queries every connected service and shows results tagged by source.
+4. **Shared playlists.** Move playlists from the browser into a small database so family members see the same lists. Until then, use *Share* to send a playlist file.
+5. **nugs.net adapter** on the same small server.
+6. **Auto-match.** When a track's service isn't connected, look up the same song on one you do have.
+7. **YouTube** as a fallback for rare tracks.
+
+## Develop
+
+```bash
+npm install
+npm run dev      # http://localhost:5173/setlist/
+npm run build    # type-check + production build into dist/
+```
+
+Every push to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`.
+
+**Never commit secrets.** Spotify client IDs are fine to publish. The Apple Music private key (`.p8`) and any nugs credentials go in server environment variables only.
