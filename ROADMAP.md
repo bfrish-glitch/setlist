@@ -46,11 +46,13 @@ Each listener's player picks the first source they can play, in their own prefer
 - **Add from link** (Browse → 🔗 Link): paste YouTube, archive.org, phish.in, Relisten or nugs links. A head start on Phase 3.
 - **LivePhish**: parked. Separate subscription, and Relisten/phish.in covers the same Phish shows within about a day. Revisit if the group wants official soundboards.
 
-### Phase 3: Link resolver + fallback matcher
+### Phase 3: Link resolver + fallback matcher ✅
 - Paste any listen link (nugs, YouTube, archive.org, phish.in, Relisten) and get a playable show with its setlist.
 - Then look for the same show on the *other* services by artist + date, so it plays for everyone.
 - Fallback: when there's no link or it's dead, search by artist + date + venue.
 - Review screen: everything that resolved, and a short "needs a fix" list with one-tap alternatives.
+- Built: Browse → 🔗 Links takes one link, many, a whole email, or text like "Phish 7/30/25". Highlight jam comes from the link (phish.in/…/tweezer) or the curator's text ("the 30-minute Tweezer"); a picker overrides it. Songs carry every source found; dated YouTube uploads play from the matched audio (Relisten/nugs) with the video as backup. Playlist songs get a ≣ Full show button and show the curator's note.
+- Note for Phase 4: nugs matching uses the importing person's nugs sign-in. A server-side import can match Relisten/archive/YouTube on its own; nugs alternates get added when someone with nugs opens the week.
 
 ### Phase 4: Weekly email → This Week (automation)
 - **Needs a domain** (about $10/yr through Cloudflare). Cloudflare can only receive email on a domain you own, not on workers.dev. Bonus: the app gets a real address too.

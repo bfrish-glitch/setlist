@@ -26,8 +26,22 @@ export interface Track {
    * of [primary, ...alts] that this listener can play.
    */
   alts?: SourceRef[];
+  /** The full show this song comes from, on each service that has it. */
+  shows?: ShowRef[];
+  /** One-line note from the curator ("the 20-min one, peaks at 14:00"). */
+  note?: string;
   /** Shared playlists: who added it. */
   addedBy?: string;
+}
+
+/**
+ * A whole show on one service, so "play the full show" works from any song.
+ * relisten: "<artist-slug>/<yyyy-mm-dd>", nugs: container id,
+ * archive: identifier, youtube: video id (a full-show upload).
+ */
+export interface ShowRef {
+  source: SourceId;
+  id: string;
 }
 
 /** Another place the same performance can play. */

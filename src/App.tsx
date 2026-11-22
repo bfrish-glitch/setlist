@@ -22,7 +22,8 @@ const tabs: { id: Tab; label: string; icon: string }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('browse');
-  const [adding, setAdding] = useState<Track[] | null>(null);
+  const [adding, setAddingState] = useState<{ tracks: Track[]; name?: string } | null>(null);
+  const setAdding = (tracks: Track[], name?: string) => setAddingState({ tracks, name });
   const [toast, setToast] = useState<string | null>(null);
   const [nugsLogin, setNugsLogin] = useState(false);
   const openNugsLogin = () => setNugsLogin(true);
@@ -73,9 +74,10 @@ export default function App() {
       </footer>
       {adding && (
         <AddToPlaylist
-          tracks={adding}
+          tracks={adding.tracks}
+          suggestedName={adding.name}
           onClose={(msg) => {
-            setAdding(null);
+            setAddingState(null);
             if (msg) setToast(msg);
           }}
         />

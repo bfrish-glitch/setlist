@@ -26,6 +26,8 @@ export function TrackRow(props: {
   active?: boolean;
   onPlay?: () => void;
   actions?: ReactNode;
+  /** Show the curator's note under the song. */
+  showNote?: boolean;
 }) {
   const { active, onPlay, actions, index } = props;
   const resolved = resolve(props.track);
@@ -42,8 +44,9 @@ export function TrackRow(props: {
             {track.subtitle ? ` · ${track.subtitle}` : ''}
             {track.addedBy ? ` · added by ${track.addedBy}` : ''}
           </span>
+          {props.showNote && track.note && <span className="track-note">“{track.note}”</span>}
         </span>
-        <span className="dur">{fmt(track.durationSec)}</span>
+        <span className="dur">{fmt(track.endSec && track.startSec != null ? track.endSec - track.startSec : track.durationSec)}</span>
       </button>
       {actions && <span className="track-actions">{actions}</span>}
     </div>

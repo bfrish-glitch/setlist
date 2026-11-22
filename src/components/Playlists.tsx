@@ -4,6 +4,10 @@ import { player, usePlayer } from '../player/engine';
 import { playable, sourceOrder, sources } from '../sources';
 import { Header, Loading, SourceBadge, TrackRow, fmt } from './common';
 import { useGroup } from '../group/group';
+import { loadShowTracks } from '../resolve/resolve';
+import { canPlay } from '../sources';
+import type { Track } from '../types';
+import { normTitle } from '../resolve/text';
 
 export function Playlists() {
   const all = usePlaylists();
@@ -83,6 +87,24 @@ export function Playlists() {
       </div>
     </>
   );
+}
+
+/** Play the whole show a song came from, starting at that song. */
+async function playFullShow(t: Track) {
+  const ref = t.shows?.find((r) => canPlay(r.source));
+  if (!ref) {
+    alert('None of your connected services has the full show.');
+    return;
+  }
+  try {
+    const tracks = await loadShowTracks(ref);
+    if (!tracks.length) throw new Error('That show came back empty');
+    const n = normTitle(t.title);
+    const start = Math.max(0, tracks.findIndex((x) => normTitle(x.title) === n));
+    player.playQueue(tracks, start);
+  } catch (e) {
+    alert(e instanceof Error ? e.message : 'Couldn’t load the full show');
+  }
 }
 
 function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
@@ -179,6 +201,7 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
             index={i}
             active={nowKey === t.key}
             onPlay={() => player.playQueue(p.tracks, i)}
+            showNote
             actions={
               editing ? (
                 <>
@@ -196,6 +219,10 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
                     ✕
                   </button>
                 </>
+              ) : t.shows?.length && !(t.shows.length === 1 && t.shows[0].source === 'youtube') ? (
+                <button className="icon" title="Play full show" onClick={() => void playFullShow(t)}>
+                  ≣
+                </button>
               ) : undefined
             }
           />

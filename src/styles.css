@@ -178,3 +178,23 @@ footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background:
 body.yt-on main { padding-bottom: calc(var(--tabs-h) + 96px + min(calc(100vw - 24px), 380px) * 9 / 16 + 24px + env(safe-area-inset-bottom)); }
 .link-form .search { margin-bottom: 8px; }
 .pad-x { padding: 0 12px 12px; }
+
+/* import / review */
+.import-box { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.import-box textarea { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; outline: none; resize: vertical; font: inherit; color: inherit; }
+.import-box textarea:focus { border-color: var(--accent); }
+.import-summary { position: sticky; top: 61px; z-index: 4; background: rgba(17,18,20,.95); backdrop-filter: blur(10px); padding: 10px 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
+.pick { margin: 10px 12px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; gap: 8px; }
+.pick.loading { color: var(--muted); font-size: 14px; }
+.pick.error { border-color: #5a2a2a; }
+.pick .list { margin: 0 -12px -12px; border-top: 1px solid var(--line); }
+.pick-head { display: flex; gap: 10px; align-items: flex-start; }
+.pick-note, .track-note { color: var(--muted); font-size: 13px; font-style: italic; white-space: normal; }
+.track-note { display: block; margin-top: 2px; }
+.pick-choose { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.pick-choose select { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px; color: var(--text); }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; }
+.status-dot.good { background: #3fb68b; } .status-dot.mid { background: var(--accent); } .status-dot.bad { background: var(--danger); }
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
+.fix-row { display: flex; gap: 8px; }
+.fix-row input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; outline: none; }

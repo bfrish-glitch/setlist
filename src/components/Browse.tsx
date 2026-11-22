@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { SpotifyBrowse } from './SpotifyBrowse';
 import { NugsBrowse } from './NugsBrowse';
-import { LinkAdd } from './LinkAdd';
+import { Import } from './Import';
 import type { Track } from '../types';
 import {
   bestSource,
@@ -22,9 +22,9 @@ type View =
   | { kind: 'show'; artist: RelistenArtist; show: RelistenShow };
 
 type Catalog = 'relisten' | 'nugs' | 'spotify' | 'link';
-const catalogNames: Record<Catalog, string> = { relisten: 'Relisten', nugs: 'nugs', spotify: 'Spotify', link: '🔗 Link' };
+const catalogNames: Record<Catalog, string> = { relisten: 'Relisten', nugs: 'nugs', spotify: 'Spotify', link: '🔗 Links' };
 
-export function Browse({ onAdd, onNugsLogin }: { onAdd: (tracks: Track[]) => void; onNugsLogin: () => void }) {
+export function Browse({ onAdd, onNugsLogin }: { onAdd: (tracks: Track[], name?: string) => void; onNugsLogin: () => void }) {
   const [catalog, setCatalog] = useState<Catalog>('relisten');
   const switcher = (
     <div className="segmented">
@@ -48,7 +48,7 @@ export function Browse({ onAdd, onNugsLogin }: { onAdd: (tracks: Track[]) => voi
         <SpotifyBrowse onAdd={onAdd} switcher={switcher} />
       </div>
       <div hidden={catalog !== 'link'}>
-        <LinkAdd onAdd={onAdd} switcher={switcher} />
+        <Import onAdd={onAdd} switcher={switcher} />
       </div>
     </>
   );
