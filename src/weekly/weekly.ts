@@ -51,6 +51,7 @@ export interface WeeklyRun {
   outputTokens?: number;
   playlistId?: string;
   missed: string[];
+  dropped?: { artist: string; date: string | null; highlight: string | null; reason: string }[];
   raw?: string;
 }
 

@@ -276,6 +276,7 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
 
 function RunSummary({ run, owner, model, onReview }: { run: WeeklyRun; owner: boolean; model: string; onReview: () => void }) {
   const [open, setOpen] = useState(false);
+  const [raw, setRaw] = useState(false);
   const label =
     run.status === 'running'
       ? `Researching… started ${when(run.startedAt)}`
@@ -296,7 +297,7 @@ function RunSummary({ run, owner, model, onReview }: { run: WeeklyRun; owner: bo
             </span>
           )}
         </span>
-        {run.picks.length > 0 && (
+        {(run.picks.length > 0 || (run.dropped?.length ?? 0) > 0 || run.raw) && (
           <button className="link" onClick={() => setOpen((o) => !o)}>
             {open ? 'Hide' : 'Picks'}
           </button>
@@ -313,7 +314,27 @@ function RunSummary({ run, owner, model, onReview }: { run: WeeklyRun; owner: bo
               {p.caveats && <div className="sub wrap">Caveat: {p.caveats}</div>}
             </li>
           ))}
-          {run.missed.length > 0 && <li className="warn">Couldn’t find: {run.missed.join(', ')}</li>}
+          {run.missed.length > 0 && <li className="warn">Couldn’t find a playable source: {run.missed.join(', ')}</li>}
+          {(run.dropped?.length ?? 0) > 0 && (
+            <li className="sub wrap">
+              <b>Left out by your settings:</b>
+              {run.dropped!.map((d, i) => (
+                <div key={i}>
+                  {d.artist}
+                  {d.date ? ` ${d.date}` : ''}
+                  {d.highlight ? ` (${d.highlight})` : ''}: {d.reason}
+                </div>
+              ))}
+            </li>
+          )}
+          {owner && run.raw && (
+            <li>
+              <button className="link small-link" onClick={() => setRaw((v) => !v)}>
+                {raw ? 'Hide' : 'Show'} Claude’s full answer
+              </button>
+              {raw && <pre className="raw">{run.raw}</pre>}
+            </li>
+          )}
         </ul>
       )}
       {owner && run.status === 'ready' && (

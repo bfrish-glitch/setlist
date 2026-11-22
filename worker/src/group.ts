@@ -90,7 +90,17 @@ export class Group extends DurableObject<GroupEnv> {
     `);
   }
 
+  private migrated = false;
+  /** Columns added after the first release. */
+  private migrate() {
+    if (this.migrated) return;
+    this.migrated = true;
+    const cols = this.sql.exec<{ name: string }>('PRAGMA table_info(runs)').toArray().map((c) => c.name);
+    if (!cols.includes('dropped')) this.sql.exec('ALTER TABLE runs ADD COLUMN dropped TEXT');
+  }
+
   async fetch(req: Request): Promise<Response> {
+    this.migrate();
     const url = new URL(req.url);
     const path = url.pathname.replace(/^\/api/, '');
     try {
@@ -505,6 +515,7 @@ export class Group extends DurableObject<GroupEnv> {
       outputTokens: r.output_tokens,
       playlistId: r.playlist_id,
       missed: r.missed ? JSON.parse(r.missed) : [],
+      dropped: r.dropped ? JSON.parse(r.dropped) : [],
       ...(full ? { raw: r.raw } : {}),
     };
   }
@@ -573,6 +584,7 @@ export class Group extends DurableObject<GroupEnv> {
 
   /** The alarm: either the weekly schedule or a "Run now". */
   async alarm() {
+    this.migrate();
     const trigger = this.getMeta('run_requested') ? 'manual' : 'weekly';
     this.sql.exec("DELETE FROM meta WHERE key = 'run_requested'");
     const cfg = this.config();
@@ -591,9 +603,10 @@ export class Group extends DurableObject<GroupEnv> {
       }
       const res = await curate(this.env.ANTHROPIC_API_KEY, cfg, [...already], this.env.ANTHROPIC_BASE_URL || undefined);
       this.sql.exec(
-        "UPDATE runs SET status = 'ready', finished_at = ?, picks = ?, raw = ?, searches = ?, input_tokens = ?, output_tokens = ? WHERE id = ?",
+        "UPDATE runs SET status = 'ready', finished_at = ?, picks = ?, dropped = ?, raw = ?, searches = ?, input_tokens = ?, output_tokens = ? WHERE id = ?",
         now(),
         JSON.stringify(res.picks),
+        JSON.stringify(res.dropped),
         res.raw,
         res.searches,
         res.inputTokens,

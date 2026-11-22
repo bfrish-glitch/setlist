@@ -163,6 +163,7 @@ interface Usage {
 
 export interface CurateResult {
   picks: WeeklyPick[];
+  dropped: Dropped[];
   raw: string;
   tool?: string;
   searches: number;
@@ -216,7 +217,14 @@ const TOOL_TIERS = [
 const bandKey = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/\bthe\b/g, '').replace(/[^a-z0-9]+/g, '');
 
 /** Hard limits the prompt asked for, enforced in code too: window, per-band caps, total. */
-export function enforce(picks: WeeklyPick[], cfg: WeeklyConfig, now = Date.now()): WeeklyPick[] {
+export interface Dropped {
+  artist: string;
+  date: string | null;
+  highlight: string | null;
+  reason: string;
+}
+
+export function enforce(picks: WeeklyPick[], cfg: WeeklyConfig, now = Date.now(), dropped: Dropped[] = []): WeeklyPick[] {
   const start = new Date(now - (cfg.windowDays + 1) * 864e5).toISOString().slice(0, 10);
   const end = new Date(now + 864e5).toISOString().slice(0, 10);
   // "King Gizzard" and "King Gizzard & The Lizard Wizard" are the same band:
@@ -234,18 +242,31 @@ export function enforce(picks: WeeklyPick[], cfg: WeeklyConfig, now = Date.now()
   const used = new Map<string, number>();
   let newOnes = 0;
   const out: WeeklyPick[] = [];
+  const drop = (p: WeeklyPick, reason: string) => dropped.push({ artist: p.artist, date: p.date, highlight: p.highlight, reason });
   for (const p of picks) {
-    if (p.kind === 'show' && p.date && (p.date < start || p.date > end)) continue;
+    if (out.length >= cfg.picks) {
+      drop(p, `over the ${cfg.picks}-jam limit`);
+      continue;
+    }
+    if (p.kind === 'show' && p.date && (p.date < start || p.date > end)) {
+      drop(p, `outside the ${cfg.windowDays}-day window`);
+      continue;
+    }
     if (p.kind === 'new_artist') {
-      if (newOnes >= cfg.newArtists) continue;
+      if (newOnes >= cfg.newArtists) {
+        drop(p, `over the ${cfg.newArtists} new-artist limit`);
+        continue;
+      }
       newOnes++;
     }
     const k = canon(p.artist);
     const cap = caps.get(k) ?? cfg.maxPerBand;
-    if ((used.get(k) ?? 0) >= cap) continue;
+    if ((used.get(k) ?? 0) >= cap) {
+      drop(p, `over the ${cap}-per-band limit for ${p.artist}`);
+      continue;
+    }
     used.set(k, (used.get(k) ?? 0) + 1);
     out.push(p);
-    if (out.length >= cfg.picks) break;
   }
   return out;
 }
@@ -319,5 +340,7 @@ export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[
       caveats: p.caveats ? String(p.caveats).slice(0, 400) : null,
     }))
     .filter((p) => p.artist);
-  return { picks: enforce(picks, cfg), raw: text.slice(0, 20000), tool: TOOL_TIERS[tier].search, ...total };
+  const dropped: Dropped[] = [];
+  const kept = enforce(picks, cfg, Date.now(), dropped);
+  return { picks: kept, dropped, raw: text.slice(0, 20000), tool: TOOL_TIERS[tier].search, ...total };
 }
