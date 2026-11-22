@@ -15,7 +15,7 @@ Setlist turns that email into a shared **This Week** playlist for a small group 
 | Question | Decision |
 |---|---|
 | Playlist contents | Highlight jam per pick, full show one tap away |
-| How picks arrive | Paste the email into Browse → 🔗 Links each week (auto-forward parked until there's a domain) |
+| How picks arrive | Now: paste the email into Browse → 🔗 Links. Next: Setlist finds the picks itself every week (Phase 4), no email needed |
 | Sign-in | Private invite link + pick a name, no passwords |
 | Curation | Auto-publish the email's picks; friends can add their own finds |
 | Group size | No hard assumption. Spotify's 5-person cap barely matters since most of this music isn't on Spotify |
@@ -54,17 +54,18 @@ Each listener's player picks the first source they can play, in their own prefer
 - Built: Browse → 🔗 Links takes one link, many, a whole email, or text like "Phish 7/30/25". Highlight jam comes from the link (phish.in/…/tweezer) or the curator's text ("the 30-minute Tweezer"); a picker overrides it. Songs carry every source found; dated YouTube uploads play from the matched audio (Relisten/nugs) with the video as backup. Playlist songs get a ≣ Full show button and show the curator's note.
 - Note for Phase 4: nugs matching uses the importing person's nugs sign-in. A server-side import can match Relisten/archive/YouTube on its own; nugs alternates get added when someone with nugs opens the week.
 
-### Phase 4: Weekly email → This Week (automation) — parked, pasting for now
+### Phase 4: Setlist curates the week itself (replaces the email)
+The friend's prompt moves into Setlist. Once a week the server researches the week's standout shows and new artists, then builds **Week of <date>** with the highlight jams. Nobody pastes anything.
 
-What the real email looks like (checked Nov 21): plain text, section headings per artist ("Phish", "Billy Strings", "King Gizzard…", "New to your radar"), one bullet per show starting with the date ("Oct 6, 2026: Venue…"), the blurb, then labelled links in parentheses. Listen links vary: LivePhish (Phish), JamBase recaps only (Billy Strings, no direct nugs URL), Gizz Tapes (tapes.kglw.net/<date>), YouTube/Bandcamp for new artists, and a trailing "Sources:" list. The importer now handles all of this: 7/7 picks on the real email, with highlights pulled from cues like "41:43", "26-minute", "is the jam highlight".
-
-- **Needs a domain** (about $10/yr through Cloudflare). Cloudflare can only receive email on a domain you own, not on workers.dev. Bonus: the app gets a real address too.
-- Friend (or Barry) auto-forwards the email to an address like `week@yourdomain`.
-- The Worker pulls every listen link out of the email, plus the text next to each one (date, venue, the "why").
-- It picks the highlight jam by matching song titles from the show's setlist against the "why" line. Otherwise it defaults to the full show.
-- Posts **Week of <date>** and tells the group.
-- Optional tweak to the friend's prompt that makes this bulletproof: add *"name the standout song for each show"* to his routine.
-- Plan B if parsing his email proves flaky: switch to Setlist running its own copy of the prompt through the Claude API, asking for structured output (needs an Anthropic API key, well under $1/week).
+- **Weekly schedule:** a Cloudflare cron trigger on the existing Worker (e.g. Monday 8am ET).
+- **The research:** Claude API with web search, using the friend's prompt as the starting point. It asks for **structured output** (artist, date, venue, highlight song, why, listen links) instead of an email, so nothing has to be parsed.
+- **Matching:** the picks run through the same resolver as the Links screen (Relisten, nugs, archive.org, YouTube, plus whatever the sources research adds), so each song carries every source found.
+- **Editable prompt:** an owner-only screen in the app to edit the prompt, the band list ("Phish, Billy Strings, King Gizzard"), how many new artists, and the day it runs. Refine it over time without touching code.
+- **Draft vs publish:** default is auto-publish. Optional "draft first" setting so the owner can glance at the picks before the group sees them.
+- **Run now:** a button to generate this week's list on demand (handy while tuning the prompt).
+- **Needs:** an Anthropic API key, stored as a Cloudflare secret, never in the repo. Rough cost: well under $1 a week (a few dozen web searches plus model usage). Estimate to confirm once built.
+- **Open design question:** the resolver runs in the browser today, and nugs matching needs a person's nugs login. Options: run Relisten/archive/YouTube matching on the server and let the owner's phone add nugs sources the next time it opens, or store the owner's nugs refresh token on the server. Decide when we build it.
+- Paste-the-email stays as a manual fallback.
 
 ### Phase 5: The friends layer
 - Home screen built around **This Week**, with past weeks archived below.
@@ -81,4 +82,6 @@ What the real email looks like (checked Nov 21): plain text, section headings pe
 - LivePhish adapter.
 
 ## Open questions
-1. **Domain** (~$10/yr) whenever auto-forwarding is worth it. Until then, paste weekly.
+1. **Anthropic API key** for Phase 4 (pay-as-you-go at console.anthropic.com).
+2. **nugs on the server** for Phase 4: owner's phone fills in nugs sources, or store a nugs token server-side?
+3. **Prompt v2:** refine the friend's prompt once the in-app version runs (more bands? fewer picks? song-level highlights required).
