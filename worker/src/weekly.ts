@@ -94,6 +94,7 @@ interface Usage {
 export interface CurateResult {
   picks: WeeklyPick[];
   raw: string;
+  tool?: string;
   searches: number;
   inputTokens: number;
   outputTokens: number;
@@ -118,18 +119,31 @@ export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[
   const total = { searches: 0, inputTokens: 0, outputTokens: 0 };
   let text = '';
 
+  // The newer search tool filters results before they reach the model (far fewer
+  // input tokens). Fall back to the basic tool if this account/model rejects it.
+  let toolType = 'web_search_20260209';
+
   // Long research turns come back as "pause_turn": send the paused message back unchanged to continue.
   for (let round = 0; round < 6; round++) {
-    const r = await fetch(`${baseUrl}/v1/messages`, {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: 8000,
-        messages,
-        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 25 }],
-      }),
-    });
+    const send = () =>
+      fetch(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: cfg.model,
+          max_tokens: 8000,
+          messages,
+          tools: [{ type: toolType, name: 'web_search', max_uses: 15 }],
+        }),
+      });
+    let r = await send();
+    if (r.status === 400 && round === 0 && toolType !== 'web_search_20250305') {
+      const peek = await r.clone().text();
+      if (/web_search|tool/i.test(peek)) {
+        toolType = 'web_search_20250305';
+        r = await send();
+      }
+    }
     const j = (await r.json()) as {
       content?: { type: string; text?: string }[];
       stop_reason?: string;
@@ -168,5 +182,5 @@ export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[
       links: (Array.isArray(p.links) ? p.links : []).map(String).filter((l) => /^https?:\/\//.test(l)).slice(0, 5),
     }))
     .filter((p) => p.artist);
-  return { picks, raw: text.slice(0, 20000), ...total };
+  return { picks, raw: text.slice(0, 20000), tool: toolType, ...total };
 }

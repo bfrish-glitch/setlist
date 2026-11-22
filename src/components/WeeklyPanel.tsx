@@ -15,6 +15,20 @@ import {
 } from '../weekly/weekly';
 import { TrackRow } from './common';
 
+// Claude API list prices (USD): per million tokens, and per search. Update if prices change.
+const PRICES: Record<string, { in: number; out: number }> = {
+  'claude-sonnet-5-5': { in: 2, out: 10 },
+  'claude-opus-5-5': { in: 4, out: 20 },
+  'claude-haiku-5-5': { in: 0.5, out: 2.5 },
+};
+const SEARCH_COST = 0.01;
+
+/** Rough cost of a run, from its token and search counts. */
+export function runCost(r: { inputTokens?: number; outputTokens?: number; searches?: number }, model: string) {
+  const p = PRICES[model] ?? PRICES['claude-sonnet-5-5'];
+  return ((r.inputTokens ?? 0) * p.in + (r.outputTokens ?? 0) * p.out) / 1e6 + (r.searches ?? 0) * SEARCH_COST;
+}
+
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const when = (ms?: number | null) =>
   ms ? new Date(ms).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
@@ -117,7 +131,7 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
       )}
       <div className="sub wrap">Bands: {cfg.bands.join(', ')} · up to {cfg.showsPerBand} shows each · {cfg.newArtists} new artist{cfg.newArtists === 1 ? '' : 's'}</div>
 
-      {last && <RunSummary run={last} owner={owner} onReview={() => setReview(last)} />}
+      {last && <RunSummary run={last} owner={owner} model={cfg.model} onReview={() => setReview(last)} />}
 
       {owner && !editing && (
         <div className="btns">
@@ -217,7 +231,7 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
   );
 }
 
-function RunSummary({ run, owner, onReview }: { run: WeeklyRun; owner: boolean; onReview: () => void }) {
+function RunSummary({ run, owner, model, onReview }: { run: WeeklyRun; owner: boolean; model: string; onReview: () => void }) {
   const [open, setOpen] = useState(false);
   const label =
     run.status === 'running'
@@ -234,7 +248,8 @@ function RunSummary({ run, owner, onReview }: { run: WeeklyRun; owner: boolean; 
           {run.error && <span className="sub wrap">{run.error}</span>}
           {owner && run.searches != null && (
             <span className="sub">
-              {run.searches} searches · {Math.round(((run.inputTokens ?? 0) + (run.outputTokens ?? 0)) / 1000)}k tokens
+              {run.searches} searches · {Math.round(((run.inputTokens ?? 0) + (run.outputTokens ?? 0)) / 1000)}k tokens · ≈ $
+              {runCost(run, model).toFixed(2)}
             </span>
           )}
         </span>

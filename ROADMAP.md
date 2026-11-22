@@ -83,7 +83,7 @@ The friend's prompt moves into Setlist. Once a week the server researches the we
 - **Editable prompt:** an owner-only screen in the app to edit the prompt, the band list ("Phish, Billy Strings, King Gizzard"), how many new artists, and the day it runs. Refine it over time without touching code.
 - **Draft vs publish:** default is auto-publish. Optional "draft first" setting so the owner can glance at the picks before the group sees them.
 - **Run now:** a button to generate this week's list on demand (handy while tuning the prompt).
-- **Needs:** an Anthropic API key, stored as a Cloudflare secret, never in the repo. Rough cost: well under $1 a week (a few dozen web searches plus model usage). Estimate to confirm once built.
+- **Cost:** first real run (Nov 22) was 23 searches + 1.3M tokens on Sonnet 5.5, about $2.90 (~$12/month weekly). Mostly search results re-read as input. Switched to the filtering search tool (web_search_20260209) with a 15-search cap; each run now shows an estimated $ in the panel. Next levers if still high: domain focus, fewer shows per band, Haiku for the search pass.
 - **How it publishes:** the server does the research (Durable Object alarm = the weekly schedule, Claude + web search, picks stored as JSON). The first group member's app to open afterward claims the run and builds the playlist with its own resolver and logins, so nugs sources get included when Barry's phone does it. Draft mode: the owner reviews in Services → Weekly picks → Review & publish.
 - Paste-the-email stays as a manual fallback.
 
