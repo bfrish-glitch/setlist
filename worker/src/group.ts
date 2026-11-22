@@ -670,7 +670,12 @@ export class Group extends DurableObject<GroupEnv> {
     this.sql.exec("INSERT INTO runs (id, kind, trigger, status, started_at) VALUES (?, ?, ?, 'running', ?)", id, kind, trigger, now());
     try {
       const past = this.sql
-        .exec<{ picks: string }>('SELECT picks FROM runs WHERE picks IS NOT NULL AND kind = ? ORDER BY started_at DESC LIMIT 12', kind)
+        // Only earlier weeks count as "already featured". Re-runs this week (and unpublished runs) don't.
+        .exec<{ picks: string }>(
+          "SELECT picks FROM runs WHERE picks IS NOT NULL AND kind = ? AND status = 'published' AND started_at < ? ORDER BY started_at DESC LIMIT 6",
+          kind,
+          now() - 4 * 864e5,
+        )
         .toArray()
         .flatMap((r) => JSON.parse(r.picks) as { artist: string; date: string | null }[]);
       const base = this.env.ANTHROPIC_BASE_URL || undefined;
