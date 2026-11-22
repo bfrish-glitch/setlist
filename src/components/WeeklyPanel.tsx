@@ -290,6 +290,9 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
 function RunSummary({ run, owner, model, onReview }: { run: WeeklyRun; owner: boolean; model: string; onReview: () => void }) {
   const [open, setOpen] = useState(false);
   const [raw, setRaw] = useState(false);
+  const [why, setWhy] = useState(false);
+  const considered = run.considered ?? [];
+  const passed = considered.filter((c) => c.decision === 'passed');
   const label =
     run.status === 'running'
       ? `Researching… started ${when(run.startedAt)}`
@@ -310,7 +313,7 @@ function RunSummary({ run, owner, model, onReview }: { run: WeeklyRun; owner: bo
             </span>
           )}
         </span>
-        {(run.picks.length > 0 || (run.dropped?.length ?? 0) > 0 || run.raw) && (
+        {(run.picks.length > 0 || (run.dropped?.length ?? 0) > 0 || run.raw || considered.length > 0) && (
           <button className="link" onClick={() => setOpen((o) => !o)}>
             {open ? 'Hide' : 'Picks'}
           </button>
@@ -338,6 +341,46 @@ function RunSummary({ run, owner, model, onReview }: { run: WeeklyRun; owner: bo
                   {d.highlight ? ` (${d.highlight})` : ''}: {d.reason}
                 </div>
               ))}
+            </li>
+          )}
+          {(considered.length > 0 || run.candidates) && (
+            <li>
+              <button className="link small-link" onClick={() => setWhy((v) => !v)}>
+                {why ? 'Hide' : 'Show'} what it considered
+                {considered.length ? ` (${considered.length} shows, ${passed.length} passed)` : ''}
+              </button>
+              {why && (
+                <div className="sub wrap considered">
+                  {passed.length > 0 && <b>Passed on:</b>}
+                  {passed.map((c, i) => (
+                    <div key={`p${i}`}>
+                      {c.artist}
+                      {c.date ? ` ${c.date}` : ''}: {c.reason}
+                    </div>
+                  ))}
+                  {considered.some((c) => c.decision === 'picked') && <b>Picked:</b>}
+                  {considered
+                    .filter((c) => c.decision === 'picked')
+                    .map((c, i) => (
+                      <div key={`k${i}`}>
+                        {c.artist}
+                        {c.date ? ` ${c.date}` : ''}: {c.reason}
+                      </div>
+                    ))}
+                  {run.candidates && (
+                    <>
+                      <b>
+                        Candidate list: {run.candidates.articles.length} recaps, {run.candidates.shows.length} shows
+                      </b>
+                      {run.candidates.sources.map((s, i) => (
+                        <div key={`s${i}`}>
+                          {s.ok ? '✓' : '✗'} {s.name}: {s.ok ? s.count : s.error || 'failed'}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
             </li>
           )}
           {owner && run.raw && (

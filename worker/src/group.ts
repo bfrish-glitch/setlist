@@ -9,6 +9,7 @@ import {
   type DiscoveryConfig,
   type WeeklyConfig,
 } from './weekly';
+import { candidatesText, gatherCandidates, type Candidates } from './candidates';
 
 type RunKind = 'weekly' | 'discovery';
 
@@ -109,6 +110,8 @@ export class Group extends DurableObject<GroupEnv> {
     const cols = this.sql.exec<{ name: string }>('PRAGMA table_info(runs)').toArray().map((c) => c.name);
     if (!cols.includes('dropped')) this.sql.exec('ALTER TABLE runs ADD COLUMN dropped TEXT');
     if (!cols.includes('kind')) this.sql.exec("ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'weekly'");
+    if (!cols.includes('candidates')) this.sql.exec('ALTER TABLE runs ADD COLUMN candidates TEXT');
+    if (!cols.includes('considered')) this.sql.exec('ALTER TABLE runs ADD COLUMN considered TEXT');
   }
 
   async fetch(req: Request): Promise<Response> {
@@ -554,7 +557,8 @@ export class Group extends DurableObject<GroupEnv> {
       playlistId: r.playlist_id,
       missed: r.missed ? JSON.parse(r.missed) : [],
       dropped: r.dropped ? JSON.parse(r.dropped) : [],
-      ...(full ? { raw: r.raw } : {}),
+      considered: r.considered ? JSON.parse(r.considered) : [],
+      ...(full ? { raw: r.raw, candidates: r.candidates ? JSON.parse(r.candidates) : null } : {}),
     };
   }
 
@@ -670,10 +674,24 @@ export class Group extends DurableObject<GroupEnv> {
         .toArray()
         .flatMap((r) => JSON.parse(r.picks) as { artist: string; date: string | null }[]);
       const base = this.env.ANTHROPIC_BASE_URL || undefined;
+      let cands: Candidates | null = null;
+      if (kind === 'weekly') {
+        // Step 1: gather every candidate show with plain code, so Claude judges instead of hunting.
+        const cfg = this.config();
+        cands = await gatherCandidates(cfg.watchlist, cfg.windowDays).catch(() => null);
+        if (cands) this.sql.exec('UPDATE runs SET candidates = ? WHERE id = ?', JSON.stringify(cands), id);
+      }
       const res =
         kind === 'discovery'
           ? await discover(this.env.ANTHROPIC_API_KEY!, this.discoveryConfig(), this.config().watchlist, [...new Set(past.map((p) => p.artist))], base)
-          : await curate(this.env.ANTHROPIC_API_KEY!, this.config(), [...new Set(past.filter((p) => p.date).map((p) => `${p.artist} ${p.date}`))], base);
+          : await curate(
+              this.env.ANTHROPIC_API_KEY!,
+              this.config(),
+              [...new Set(past.filter((p) => p.date).map((p) => `${p.artist} ${p.date}`))],
+              base,
+              cands ? candidatesText(cands) : '',
+            );
+      if (res.considered) this.sql.exec('UPDATE runs SET considered = ? WHERE id = ?', JSON.stringify(res.considered), id);
       this.sql.exec(
         "UPDATE runs SET status = 'ready', finished_at = ?, picks = ?, dropped = ?, raw = ?, searches = ?, input_tokens = ?, output_tokens = ? WHERE id = ?",
         now(),

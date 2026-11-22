@@ -67,6 +67,12 @@ export interface WeeklyRun {
   playlistId?: string;
   missed: string[];
   dropped?: { artist: string; date: string | null; highlight: string | null; reason: string }[];
+  considered?: { artist: string; date: string | null; decision: 'picked' | 'passed'; reason: string }[];
+  candidates?: {
+    articles: { title: string; url: string; source: string; date?: string }[];
+    shows: { artist: string; date: string; venue?: string }[];
+    sources: { name: string; ok: boolean; count: number; error?: string }[];
+  } | null;
   raw?: string;
 }
 

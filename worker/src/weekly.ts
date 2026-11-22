@@ -78,7 +78,7 @@ STEP 4: Choose up to {{picks}} picks: at most {{maxPerBand}} per band{{bandLimit
 
 Do not repeat these shows from previous weeks: {{already}}`;
 
-export const DEFAULT_PROMPT = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
+export const DEFAULT_PROMPT_V3 = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
 
 BUDGET: at most 8 web searches and 8 page fetches. Fetch before you search.
 
@@ -103,13 +103,38 @@ STEP 4: Aim for {{picks}} picks. Fill the list in this order: shows with strong 
 
 Do not repeat these shows from previous weeks: {{already}}`;
 
+export const DEFAULT_PROMPT = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
+
+Below is a CANDIDATE LIST gathered automatically this morning: recap and review headlines from music sites, and the shows watchlist bands played (from tape archives). Treat every show it mentions as a candidate. It can miss things, so you may add shows you find yourself.
+
+{{candidates}}
+
+BUDGET: at most 6 web searches and 8 page fetches.
+
+STEP 1: From the candidate list, write down every distinct show in the window (artist + date + city). Headlines usually name the band and city; use the shows list or the article to pin the date. Don't drop a show just because only a headline mentions it.
+
+STEP 2: Read the most promising coverage. Fetch up to 6 recap/review pages from the list (prefer ones that single out a jam or call a show a standout), plus https://elgoose.net/reviews/ if Goose played and https://phish.net/ if Phish or Trey Anastasio Band played. Use searches only to find fan or critical takes on your top candidates, and to check watchlist bands with no coverage at all: {{watchlist}}.
+
+STEP 3: Score each candidate.
+Strong: 2+ independent sources praise the same show or jam; fan reviews say "best of tour"; a reviewer singles out a jam over about 18 minutes; jam-chart inclusion; a big guest sit-in that reviewers rave about.
+Medium: notable segues or sandwiches, a bust-out after a gap of more than about 100 shows, a debut, a meaningful guest.
+Weak: one descriptive press recap, band PR, livestream promotion.
+Negative: "flat", "sloppy", "choppy", "lacked direction", "didn't go deep", "cover-heavy", a cut set. Downgrade the show, or use only its praised segment.
+
+STEP 4: Aim for {{picks}} picks. Fill the list in this order: strong, then medium, then solid shows backed by one good recap. Every pick needs a named highlight song. Only come in under the target if the window was genuinely quiet. Rules: at most {{maxPerBand}} per band{{bandLimits}}; at least 1 bluegrass/jamgrass pick when one qualifies; and up to {{newArtists}} emerging artist backed by two sources. For each pick name ONE highlight song (the specific jam the sources praise), explain why in one or two sentences crediting the sources, note any critical remarks as caveats, include the best review URL, and name the likely listen source (nugs/LivePhish, archive.org/Relisten, phish.in, tapes.kglw.net, YouTube, Bandcamp). Start the why with the strength in brackets: [consensus], [solid] or [curio]. Don't spend searches verifying listen links. Never include a show people panned.
+
+Also report every candidate show you looked at in "considered", with picked or passed and a few words on why.
+
+Do not repeat these shows from previous weeks: {{already}}`;
+
 const OUTPUT_RULES = `
 
 When you're done researching, reply with ONLY a JSON object inside <picks></picks> tags, no other text, in exactly this shape:
 <picks>{"picks":[{"kind":"show","artist":"Phish","date":"2026-10-06","venue":"Allianz Amphitheater, Richmond, VA","highlight":"Life Saving Gun","why":"One or two sentences on why it stands out, crediting sources.","caveats":"Any critical remarks, or null","links":["https://listen-link-if-known","https://best-review-link"]},{"kind":"new_artist","artist":"Band Name","date":null,"venue":null,"highlight":"Song title or null","why":"Why they fit.","caveats":null,"links":["https://youtube-or-bandcamp-link"]}]}</picks>
+Then, after the picks list but inside the same JSON object, add "considered":[{"artist":"Goose","date":"2026-11-19","decision":"passed","reason":"Goose limit: 11/20 had stronger reviews"}] covering every candidate show you evaluated (picked or passed), at most 30.
 Rules: date is YYYY-MM-DD or null; highlight is the exact song title as it appears on setlists, or null; put the most directly playable link first, then the review link.`;
 
-export const PROMPT_VERSION = 3;
+export const PROMPT_VERSION = 4;
 
 export const DEFAULT_CONFIG: WeeklyConfig = {
   enabled: true,
@@ -144,7 +169,7 @@ export function upgradeConfig(saved: Partial<WeeklyConfig> & { bands?: string[];
   const cfg = { ...DEFAULT_CONFIG, ...saved } as WeeklyConfig & { bands?: string[]; showsPerBand?: number };
   if (!saved.promptVersion || saved.promptVersion < PROMPT_VERSION) {
     // Keep a prompt the owner wrote themselves; replace an untouched old default.
-    if (!saved.prompt || saved.prompt === DEFAULT_PROMPT_V1 || saved.prompt === DEFAULT_PROMPT_V2) cfg.prompt = DEFAULT_PROMPT;
+    if (!saved.prompt || saved.prompt === DEFAULT_PROMPT_V1 || saved.prompt === DEFAULT_PROMPT_V2 || saved.prompt === DEFAULT_PROMPT_V3) cfg.prompt = DEFAULT_PROMPT;
     // Side B handles new artists now; don't double up on Mondays.
     if ((saved.promptVersion ?? 0) < 3) cfg.newArtists = 0;
     cfg.promptVersion = PROMPT_VERSION;
@@ -191,6 +216,7 @@ interface Usage {
 export interface CurateResult {
   picks: WeeklyPick[];
   dropped: Dropped[];
+  considered?: Considered[];
   raw: string;
   tool?: string;
   searches: number;
@@ -204,13 +230,16 @@ const nyToday = () =>
 const nyDate = (ms: number) =>
   new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(ms));
 
-export function buildPrompt(cfg: WeeklyConfig, already: string[]) {
+export function buildPrompt(cfg: WeeklyConfig, already: string[], candidates = '') {
   const limits = Object.entries(cfg.bandLimits ?? {})
     .filter(([, n]) => n >= 0)
     .map(([band, n]) => `${band}: at most ${n}`)
     .join('; ');
+  // A custom prompt without the placeholder still gets the candidate list.
+  const base = candidates && !cfg.prompt.includes('{{candidates}}') ? `${cfg.prompt}\n\nCANDIDATE LIST (gathered automatically):\n{{candidates}}` : cfg.prompt;
   return (
-    cfg.prompt
+    base
+      .replaceAll('{{candidates}}', candidates || '(no candidate list this time; find shows yourself)')
       .replaceAll('{{today}}', nyToday())
       .replaceAll('{{windowStart}}', nyDate(Date.now() - cfg.windowDays * 864e5))
       .replaceAll('{{watchlist}}', cfg.watchlist.join(', '))
@@ -358,9 +387,31 @@ function extractJson(text: string): Record<string, unknown> {
   }
 }
 
-export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[], baseUrl = 'https://api.anthropic.com'): Promise<CurateResult> {
-  const { text, tool, ...total } = await callClaude(apiKey, cfg.model, buildPrompt(cfg, already), baseUrl);
-  const parsed = extractJson(text) as { picks?: unknown[] };
+export interface Considered {
+  artist: string;
+  date: string | null;
+  decision: 'picked' | 'passed';
+  reason: string;
+}
+
+export async function curate(
+  apiKey: string,
+  cfg: WeeklyConfig,
+  already: string[],
+  baseUrl = 'https://api.anthropic.com',
+  candidates = '',
+): Promise<CurateResult> {
+  const { text, tool, ...total } = await callClaude(apiKey, cfg.model, buildPrompt(cfg, already, candidates), baseUrl);
+  const parsed = extractJson(text) as { picks?: unknown[]; considered?: unknown[] };
+  const considered: Considered[] = (Array.isArray(parsed.considered) ? parsed.considered : [])
+    .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+    .slice(0, 40)
+    .map((c) => ({
+      artist: String(c.artist ?? '').slice(0, 100),
+      date: typeof c.date === 'string' ? c.date.slice(0, 10) : null,
+      decision: c.decision === 'picked' ? 'picked' : 'passed',
+      reason: String(c.reason ?? '').slice(0, 200),
+    }));
   const picks: WeeklyPick[] = (parsed.picks ?? [])
     .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
     .map((p) => ({
@@ -376,7 +427,7 @@ export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[
     .filter((p) => p.artist);
   const dropped: Dropped[] = [];
   const kept = enforce(picks, cfg, Date.now(), dropped);
-  return { picks: kept, dropped, raw: text.slice(0, 20000), tool, ...total };
+  return { picks: kept, dropped, considered, raw: text.slice(0, 20000), tool, ...total };
 }
 
 /* ---- Side B: New to Your Radar ---------------------------------------- */
