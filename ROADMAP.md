@@ -54,6 +54,15 @@ Each listener's player picks the first source they can play, in their own prefer
 - Built: Browse → 🔗 Links takes one link, many, a whole email, or text like "Phish 7/30/25". Highlight jam comes from the link (phish.in/…/tweezer) or the curator's text ("the 30-minute Tweezer"); a picker overrides it. Songs carry every source found; dated YouTube uploads play from the matched audio (Relisten/nugs) with the video as backup. Playlist songs get a ≣ Full show button and show the curator's note.
 - Note for Phase 4: nugs matching uses the importing person's nugs sign-in. A server-side import can match Relisten/archive/YouTube on its own; nugs alternates get added when someone with nugs opens the week.
 
+### Phase 3.5: More sources so fewer songs go missing (research done Nov 21)
+Research findings: Relisten already matches phish.in for Phish (new shows in about 2 days). Billy Strings tapes reach archive.org within 1–3 days but not every show gets one (10/10 Everett exists only on nugs). KGLW tapes take 1–2 weeks.
+1. **archive.org search** (S): find tapes by collection + date (`BillyStrings`, `KingGizzardAndTheLizardWizard`) or `creator:` for other bands, before Relisten indexes them.
+2. **Gizz Tapes API** (S): `tapes.kglw.net/api/v1/shows/<date>.json`. More KGLW recordings than Relisten, labeled SBD/AUD, clean setlists. Prefer recordings whose ID contains the show date (one mislabeled item seen).
+3. **YouTube search** (M): YouTube Data API v3, 100 searches/day free. Search once at import time, cache the video, and review matches. This catches nugs-only shows and emerging artists. Needs a Google API key, kept on the server.
+4. **Bandcamp embed** (S–M): for emerging bands and KGLW official bootlegs. Play-only iframe (no auto-advance control).
+- Skipped: phish.in direct (same as Relisten), LivePhish (subscription, no API), SoundCloud/Mixcloud/Audiomack (no jam content, closed APIs), keyless YouTube scraping (against ToS).
+- Reality: a show that exists only on nugs plays only for people with nugs, unless a YouTube copy exists.
+
 ### Phase 4: Setlist curates the week itself (replaces the email)
 The friend's prompt moves into Setlist. Once a week the server researches the week's standout shows and new artists, then builds **Week of <date>** with the highlight jams. Nobody pastes anything.
 
