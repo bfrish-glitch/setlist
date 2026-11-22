@@ -152,3 +152,4 @@ footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background:
 .form-body input:focus { border-color: var(--accent); }
 .form-body .fine { padding: 0; margin: 4px 0 0; }
 .form-error { color: var(--danger); font-size: 14px; }
+.fmt { font-size: 10px; font-weight: 700; border: 1px solid var(--muted); color: var(--muted); border-radius: 4px; padding: 0 4px; margin-right: 2px; vertical-align: 1px; }

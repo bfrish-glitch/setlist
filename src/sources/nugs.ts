@@ -152,7 +152,19 @@ class NugsAdapter implements SourceAdapter {
   id = 'nugs' as const;
   name = 'nugs.net';
   color = '#e85d2a';
-  lastFormat: string | null = null;
+  private formats = new Map<string, string>();
+  lastFormat: string | null = (() => {
+    try {
+      return localStorage.getItem('setlist.nugs.format');
+    } catch {
+      return null;
+    }
+  })();
+
+  /** Audio format of a track we've started streaming (FLAC / AAC). */
+  formatFor(sourceId: string) {
+    return this.formats.get(sourceId) ?? null;
+  }
 
   status() {
     if (!NUGS_RELAY) return 'coming-soon' as const;
@@ -165,7 +177,7 @@ class NugsAdapter implements SourceAdapter {
     if (!s) return 'Sign in with your nugs.net account. Needs an active subscription.';
     const who = s.name || s.email || 'your account';
     if (s.subscribed === false) return `Signed in as ${who}, but nugs doesn’t show an active subscription.`;
-    return `Signed in as ${who}.${this.lastFormat ? ` Streaming ${this.lastFormat}.` : ''} Unofficial: may break when nugs updates their app.`;
+    return `Signed in as ${who}.${this.lastFormat ? ` Last stream was ${this.lastFormat}.` : ''} Unofficial: may break when nugs updates their app.`;
   }
 
   /** Sign in with email + password. The password goes to nugs via the relay and isn't stored anywhere. */
@@ -204,10 +216,14 @@ class NugsAdapter implements SourceAdapter {
     if (!s.sub) throw new Error('nugs doesn’t show an active subscription on this account');
     const q = new URLSearchParams({ trackID: track.sourceId, nn_userID: s.userId!, ...s.sub });
     const res = await authed<{ url: string; format: string }>(`/nugs/stream?${q}`);
-    if (this.lastFormat !== res.format) {
-      this.lastFormat = res.format;
-      notifySourcesChanged();
+    this.formats.set(track.sourceId, res.format);
+    this.lastFormat = res.format;
+    try {
+      localStorage.setItem('setlist.nugs.format', res.format);
+    } catch {
+      /* ignore */
     }
+    notifySourcesChanged();
     await sharedAudio.play(res.url, track.durationSec, ev, 'nugs stream failed to load');
   }
   pause() {

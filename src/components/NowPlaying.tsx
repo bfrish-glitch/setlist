@@ -1,8 +1,11 @@
 import { player, usePlayer } from '../player/engine';
 import { SourceBadge, fmt } from './common';
+import { nugs } from '../sources/nugs';
+import { useSourcesVersion } from '../sources/changes';
 
 export function NowPlaying() {
   const s = usePlayer();
+  useSourcesVersion();
   const t = s.queue[s.index];
   if (!t) return s.error ? <div className="now error-bar">{s.error}</div> : null;
 
@@ -25,7 +28,9 @@ export function NowPlaying() {
         <div className="now-text">
           <div className="title">{t.title}</div>
           <div className="sub">
-            <SourceBadge track={t} /> {t.artist}
+            <SourceBadge track={t} />
+            {t.source === 'nugs' && nugs.formatFor(t.sourceId) && <span className="fmt">{nugs.formatFor(t.sourceId)}</span>}{' '}
+            {t.artist}
             {t.subtitle ? ` · ${t.subtitle}` : ''}
           </div>
         </div>
