@@ -3,16 +3,17 @@ import { Header } from './common';
 import { useSourcesVersion } from '../sources/changes';
 import { GroupPanel } from './GroupPanel';
 import { WeeklyPanel } from './WeeklyPanel';
+import { BUILD } from '../update';
 
 const label = { ready: 'Ready', 'needs-login': 'Sign in', 'coming-soon': 'Coming soon' } as const;
 
-export function Services(props: { onNugsLogin: () => void; onStartGroup: () => void; toast: (m: string) => void }) {
+export function Services(props: { onNugsLogin: () => void; onStartGroup: () => void; onJoinCode: (code: string) => void; toast: (m: string) => void }) {
   const { onNugsLogin } = props;
   useSourcesVersion();
   return (
     <>
       <Header title="Services" />
-      <GroupPanel onStart={props.onStartGroup} toast={props.toast} />
+      <GroupPanel onStart={props.onStartGroup} onJoinCode={props.onJoinCode} toast={props.toast} />
       <WeeklyPanel toast={props.toast} />
       <div className="set-name">Your music services</div>
       <div className="list">
@@ -48,6 +49,7 @@ export function Services(props: { onNugsLogin: () => void; onStartGroup: () => v
         Music services are per person and per device: each friend connects their own. When a shared playlist has a
         song you can’t play, Setlist uses another service you do have, or skips it.
       </p>
+      <p className="fine">Version {BUILD}</p>
     </>
   );
 }

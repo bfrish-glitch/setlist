@@ -12,6 +12,7 @@ import { NugsLogin } from './components/NugsLogin';
 import { JoinSheet } from './components/GroupSheets';
 import { group, takeDeviceCodeFromUrl, takeInviteFromUrl } from './group/group';
 import { autoPublishIfReady } from './weekly/weekly';
+import { reloadToLatest, useUpdateAvailable } from './update';
 
 type Tab = 'browse' | 'playlists' | 'queue' | 'services';
 const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -27,6 +28,7 @@ export default function App() {
   const setAdding = (tracks: Track[], name?: string) => setAddingState({ tracks, name });
   const [toast, setToast] = useState<string | null>(null);
   const [nugsLogin, setNugsLogin] = useState(false);
+  const updateAvailable = useUpdateAvailable();
   const openNugsLogin = () => setNugsLogin(true);
   // undefined = closed, null = creating the group, string = joining with that invite code
   const [joining, setJoining] = useState<string | null | undefined>(() => takeInviteFromUrl() ?? undefined);
@@ -82,6 +84,11 @@ export default function App() {
 
   return (
     <div className="app">
+      {updateAvailable && (
+        <button className="update-bar" onClick={reloadToLatest}>
+          A new version of Setlist is ready. Tap to update.
+        </button>
+      )}
       <main>
         {/* Keep Browse mounted so you don't lose your place when switching tabs. */}
         <div hidden={tab !== 'browse'}>
@@ -89,7 +96,14 @@ export default function App() {
         </div>
         {tab === 'playlists' && <Playlists />}
         {tab === 'queue' && <Queue onAdd={setAdding} />}
-        {tab === 'services' && <Services onNugsLogin={openNugsLogin} onStartGroup={() => setJoining(null)} toast={setToast} />}
+        {tab === 'services' && (
+          <Services
+            onNugsLogin={openNugsLogin}
+            onStartGroup={() => setJoining(null)}
+            onJoinCode={(code) => setJoining(code)}
+            toast={setToast}
+          />
+        )}
       </main>
       <footer>
         <NowPlaying />

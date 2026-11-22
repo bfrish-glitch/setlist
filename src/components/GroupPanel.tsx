@@ -11,7 +11,44 @@ function ago(ms?: number) {
   return `${Math.round(h / 24)}d ago`;
 }
 
-export function GroupPanel({ onStart, toast }: { onStart: () => void; toast: (m: string) => void }) {
+/** Paste an invite or device link (or just its code) when opening the link directly didn't work. */
+function PasteLink({ onJoinCode, toast }: { onJoinCode: (code: string) => void; toast: (m: string) => void }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    const t = text.trim();
+    const device = /device=([\w-]+)/.exec(t)?.[1];
+    const join = /join=([\w-]+)/.exec(t)?.[1];
+    if (device) {
+      setBusy(true);
+      try {
+        const me = await group.redeemDevice(device);
+        toast(`Signed in as ${me.name} on this device`);
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'That link didn’t work');
+      } finally {
+        setBusy(false);
+      }
+    } else if (join) onJoinCode(join);
+    else toast('Paste the whole link you were sent');
+  };
+  return (
+    <form
+      className="fix-row"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void go();
+      }}
+    >
+      <input placeholder="Paste an invite or device link" value={text} onChange={(e) => setText(e.target.value)} />
+      <button className="small" disabled={busy || !text.trim()}>
+        Go
+      </button>
+    </form>
+  );
+}
+
+export function GroupPanel({ onStart, onJoinCode, toast }: { onStart: () => void; onJoinCode: (code: string) => void; toast: (m: string) => void }) {
   const s = useGroup();
   const [initialized, setInitialized] = useState<boolean | null>(null);
 
@@ -33,9 +70,11 @@ export function GroupPanel({ onStart, toast }: { onStart: () => void; toast: (m:
           </>
         ) : (
           <p className="sub wrap">
-            You’re not in the group on this device. Ask a friend for the invite link and open it here.
+            You’re not in the group on this device. Open the invite link (or your own “Use on another device” link)
+            here, or paste it below.
           </p>
         )}
+        <PasteLink onJoinCode={onJoinCode} toast={toast} />
       </div>
     );
   }
