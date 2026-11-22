@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { DEFAULT_CONFIG, curate, nextRunAt, type WeeklyConfig } from './weekly';
+import { DEFAULT_CONFIG, curate, nextRunAt, upgradeConfig, type WeeklyConfig } from './weekly';
 
 export interface GroupEnv {
   ANTHROPIC_API_KEY?: string;
@@ -379,7 +379,7 @@ export class Group extends DurableObject<GroupEnv> {
     const raw = this.getMeta('weekly_config');
     if (!raw) return DEFAULT_CONFIG;
     try {
-      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+      return upgradeConfig(JSON.parse(raw));
     } catch {
       return DEFAULT_CONFIG;
     }
@@ -444,15 +444,28 @@ export class Group extends DurableObject<GroupEnv> {
       const n = Number(v);
       return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d;
     };
+    const list = (v: unknown, d: string[]) =>
+      Array.isArray(v) ? (v as unknown[]).map((b) => String(b).trim()).filter(Boolean).slice(0, 30) : d;
+    const limits = (v: unknown, d: Record<string, number>) => {
+      if (!v || typeof v !== 'object') return d;
+      const out: Record<string, number> = {};
+      for (const [k, n] of Object.entries(v as Record<string, unknown>).slice(0, 20)) {
+        const name = String(k).trim().slice(0, 60);
+        if (name) out[name] = num(n, 0, 5, 1);
+      }
+      return out;
+    };
     const next: WeeklyConfig = {
+      ...cur,
       enabled: body.enabled === undefined ? cur.enabled : !!body.enabled,
       day: num(body.day ?? cur.day, 0, 6, cur.day),
       hour: num(body.hour ?? cur.hour, 0, 23, cur.hour),
-      bands: Array.isArray(body.bands)
-        ? (body.bands as unknown[]).map((b) => String(b).trim()).filter(Boolean).slice(0, 10)
-        : cur.bands,
-      showsPerBand: num(body.showsPerBand ?? cur.showsPerBand, 1, 3, cur.showsPerBand),
-      newArtists: num(body.newArtists ?? cur.newArtists, 0, 5, cur.newArtists),
+      watchlist: list(body.watchlist, cur.watchlist),
+      picks: num(body.picks ?? cur.picks, 3, 15, cur.picks),
+      maxPerBand: num(body.maxPerBand ?? cur.maxPerBand, 1, 3, cur.maxPerBand),
+      bandLimits: limits(body.bandLimits, cur.bandLimits),
+      windowDays: num(body.windowDays ?? cur.windowDays, 3, 60, cur.windowDays),
+      newArtists: num(body.newArtists ?? cur.newArtists, 0, 3, cur.newArtists),
       autoPublish: body.autoPublish === undefined ? cur.autoPublish : !!body.autoPublish,
       prompt: typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.slice(0, 8000) : cur.prompt,
       model: typeof body.model === 'string' && /^claude-[\w.-]+$/.test(body.model) ? body.model : cur.model,

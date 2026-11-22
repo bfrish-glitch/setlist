@@ -10,12 +10,25 @@ export interface WeeklyConfig {
   /** 0 = Sunday … 6 = Saturday, in New York time. */
   day: number;
   hour: number;
-  bands: string[];
-  showsPerBand: number;
+  /** Bands checked every week; anything else great in the recap listings is fair game too. */
+  watchlist: string[];
+  /** Total picks to aim for. */
+  picks: number;
+  /** Most jams from one band in a week. */
+  maxPerBand: number;
+  /** Per-band caps that override maxPerBand, e.g. { "Goose": 1 }. */
+  bandLimits: Record<string, number>;
+  /** Only shows from the last N days. */
+  windowDays: number;
   newArtists: number;
   autoPublish: boolean;
-  /** The curator instructions. Placeholders: {{bands}}, {{showsPerBand}}, {{newArtists}}, {{today}}, {{already}}. */
+  /**
+   * The curator instructions. Placeholders: {{today}}, {{windowStart}},
+   * {{watchlist}}, {{picks}}, {{maxPerBand}}, {{bandLimits}}, {{newArtists}}, {{already}}.
+   */
   prompt: string;
+  /** Bumped when the default prompt changes, so old saved copies upgrade. */
+  promptVersion: number;
   model: string;
 }
 
@@ -27,9 +40,10 @@ export interface WeeklyPick {
   highlight: string | null;
   why: string;
   links: string[];
+  caveats?: string | null;
 }
 
-export const DEFAULT_PROMPT = `Today is {{today}}. You are curating a weekly listen list of standout live music for a small group of friends.
+export const DEFAULT_PROMPT_V1 = `Today is {{today}}. You are curating a weekly listen list of standout live music for a small group of friends.
 
 1. Check JamBase, nugs.net, Phish.net, kglw.net, Westword, Live For Live Music, Relix and similar fan/review sites for recent concert reviews and setlists from: {{bands}}. Identify recent shows (roughly the last 8 weeks) that fans or critics call standout, "best of tour", or otherwise exceptional. Pick up to {{showsPerBand}} per band. For each show, name the single standout song (the jam people are talking about) when the coverage makes that clear.
 
@@ -39,23 +53,79 @@ export const DEFAULT_PROMPT = `Today is {{today}}. You are curating a weekly lis
 
 Do not repeat these shows from previous weeks: {{already}}`;
 
+export const DEFAULT_PROMPT = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
+
+BUDGET: at most 8 web searches and 8 page fetches. Fetch before you search.
+
+STEP 1: Fetch these listing pages first (they are fresher than search):
+- https://www.jambase.com/collection/reviews-recaps
+- https://liveforlivemusic.com/news/recap/
+- https://elgoose.net/reviews/ (fan reviews, including critical ones)
+- https://ryanstorm.substack.com/archive
+- https://phish.net/ (only if Phish or Trey Anastasio Band played in the window)
+From these, list the window's candidate shows. Fetch at most 3 individual recaps or reviews, choosing the most promising.
+
+STEP 2: Use searches only to (a) check watchlist acts with no coverage above: {{watchlist}}, and (b) find independent or critical takes on your top candidates (fan reviews, Substacks, phish.net reviews, kglw.net). Skip any act that did not play in the window. Never search for ticket pages.
+
+STEP 3: Score each candidate.
+Strong: 2+ independent sources praise the same show or jam; fan reviews say "best of tour"; a reviewer singles out a jam over about 18 minutes; jam-chart inclusion.
+Medium: notable segues or sandwiches, a bust-out after a gap of more than about 100 shows, a debut, a meaningful guest.
+Weak: one descriptive press recap, band PR, livestream promotion.
+Negative: "flat", "sloppy", "choppy", "lacked direction", "didn't go deep", "cover-heavy", a cut set. Downgrade the show, or use only its praised segment.
+Prefer consensus over hype. If a show is notable only for a rarity, say "curio" in the why.
+
+STEP 4: Choose up to {{picks}} picks: at most {{maxPerBand}} per band{{bandLimits}}; at least 1 bluegrass/jamgrass pick when one qualifies; and up to {{newArtists}} emerging artist backed by two sources. For each pick name ONE highlight song (the specific jam the sources praise), explain why in one or two sentences crediting the sources, note any critical remarks as caveats, include the best review URL, and name the likely listen source (nugs/LivePhish, archive.org/Relisten, phish.in, tapes.kglw.net, YouTube, Bandcamp). Don't spend searches verifying listen links. Fewer picks is fine. Never pad.
+
+Do not repeat these shows from previous weeks: {{already}}`;
+
 const OUTPUT_RULES = `
 
 When you're done researching, reply with ONLY a JSON object inside <picks></picks> tags, no other text, in exactly this shape:
-<picks>{"picks":[{"kind":"show","artist":"Phish","date":"2026-10-06","venue":"Allianz Amphitheater, Richmond, VA","highlight":"Life Saving Gun","why":"One or two sentences on why it stands out.","links":["https://listen-link","https://review-link"]},{"kind":"new_artist","artist":"Band Name","date":null,"venue":null,"highlight":"Song title or null","why":"Why they fit.","links":["https://youtube-or-bandcamp-link"]}]}</picks>
-Rules: date is YYYY-MM-DD or null; highlight is the exact song title as it appears on setlists, or null; put the most directly playable link first.`;
+<picks>{"picks":[{"kind":"show","artist":"Phish","date":"2026-10-06","venue":"Allianz Amphitheater, Richmond, VA","highlight":"Life Saving Gun","why":"One or two sentences on why it stands out, crediting sources.","caveats":"Any critical remarks, or null","links":["https://listen-link-if-known","https://best-review-link"]},{"kind":"new_artist","artist":"Band Name","date":null,"venue":null,"highlight":"Song title or null","why":"Why they fit.","caveats":null,"links":["https://youtube-or-bandcamp-link"]}]}</picks>
+Rules: date is YYYY-MM-DD or null; highlight is the exact song title as it appears on setlists, or null; put the most directly playable link first, then the review link.`;
+
+export const PROMPT_VERSION = 2;
 
 export const DEFAULT_CONFIG: WeeklyConfig = {
   enabled: true,
   day: 1,
   hour: 8,
-  bands: ['Phish', 'Billy Strings', 'King Gizzard & the Lizard Wizard'],
-  showsPerBand: 2,
-  newArtists: 2,
+  watchlist: [
+    'Phish',
+    'Billy Strings',
+    'King Gizzard & the Lizard Wizard',
+    'Goose',
+    'Trey Anastasio Band',
+    'Dead & Company',
+    "Joe Russo's Almost Dead",
+    'Widespread Panic',
+    "Umphrey's McGee",
+    'String Cheese Incident',
+    'Greensky Bluegrass',
+  ],
+  picks: 8,
+  maxPerBand: 2,
+  bandLimits: { Goose: 1 },
+  windowDays: 14,
+  newArtists: 1,
   autoPublish: true,
   prompt: DEFAULT_PROMPT,
+  promptVersion: PROMPT_VERSION,
   model: 'claude-sonnet-5-5',
 };
+
+/** Bring a saved config up to date: v1 settings (bands/showsPerBand) and the v1 default prompt. */
+export function upgradeConfig(saved: Partial<WeeklyConfig> & { bands?: string[]; showsPerBand?: number }): WeeklyConfig {
+  const cfg = { ...DEFAULT_CONFIG, ...saved } as WeeklyConfig & { bands?: string[]; showsPerBand?: number };
+  if (!saved.promptVersion || saved.promptVersion < PROMPT_VERSION) {
+    // Keep a prompt the owner wrote themselves; replace an untouched old default.
+    if (!saved.prompt || saved.prompt === DEFAULT_PROMPT_V1) cfg.prompt = DEFAULT_PROMPT;
+    cfg.promptVersion = PROMPT_VERSION;
+  }
+  delete cfg.bands;
+  delete cfg.showsPerBand;
+  return cfg;
+}
 
 /* ---- schedule (New York time, DST-safe) ---------------------------- */
 
@@ -103,15 +173,81 @@ export interface CurateResult {
 const nyToday = () =>
   new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
 
+const nyDate = (ms: number) =>
+  new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(ms));
+
 export function buildPrompt(cfg: WeeklyConfig, already: string[]) {
+  const limits = Object.entries(cfg.bandLimits ?? {})
+    .filter(([, n]) => n >= 0)
+    .map(([band, n]) => `${band}: at most ${n}`)
+    .join('; ');
   return (
     cfg.prompt
       .replaceAll('{{today}}', nyToday())
-      .replaceAll('{{bands}}', cfg.bands.join(', '))
-      .replaceAll('{{showsPerBand}}', String(cfg.showsPerBand))
+      .replaceAll('{{windowStart}}', nyDate(Date.now() - cfg.windowDays * 864e5))
+      .replaceAll('{{watchlist}}', cfg.watchlist.join(', '))
+      .replaceAll('{{picks}}', String(cfg.picks))
+      .replaceAll('{{maxPerBand}}', String(cfg.maxPerBand))
+      .replaceAll('{{bandLimits}}', limits ? ` (${limits})` : '')
       .replaceAll('{{newArtists}}', String(cfg.newArtists))
+      // v1 placeholders, in case an owner kept an old custom prompt
+      .replaceAll('{{bands}}', cfg.watchlist.join(', '))
+      .replaceAll('{{showsPerBand}}', String(cfg.maxPerBand))
       .replaceAll('{{already}}', already.length ? already.join('; ') : '(none yet)') + OUTPUT_RULES
   );
+}
+
+// Ticket and listing spam that crowds out real reviews in search results.
+const BLOCKED = [
+  'seatgeek.com', 'stereoboard.com', 'eventticketscenter.com', 'tickpick.com', 'songkick.com', 'concerts50.com',
+  'concertfix.com', 'concertarchives.org', 'eventworld.co', 'ticketx.com', 'gigora.com', 'livenation.com',
+  'ticketmaster.com', 'stubhub.com', 'vividseats.com', 'axs.com', 'bandsintown.com',
+];
+
+// Newest tools first: they filter pages before the model reads them (far fewer tokens).
+// Older versions are fallbacks if this account or model rejects the newer ones.
+const TOOL_TIERS = [
+  { search: 'web_search_20260318', fetch: 'web_fetch_20260318' },
+  { search: 'web_search_20260209', fetch: 'web_fetch_20260209' },
+  { search: 'web_search_20250305', fetch: 'web_fetch_20250910' },
+];
+
+/** Normalize band names so "King Gizzard & The Lizard Wizard" and "king gizzard and the lizard wizard" match. */
+const bandKey = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/\bthe\b/g, '').replace(/[^a-z0-9]+/g, '');
+
+/** Hard limits the prompt asked for, enforced in code too: window, per-band caps, total. */
+export function enforce(picks: WeeklyPick[], cfg: WeeklyConfig, now = Date.now()): WeeklyPick[] {
+  const start = new Date(now - (cfg.windowDays + 1) * 864e5).toISOString().slice(0, 10);
+  const end = new Date(now + 864e5).toISOString().slice(0, 10);
+  // "King Gizzard" and "King Gizzard & The Lizard Wizard" are the same band:
+  // a name that starts with another known name (5+ letters) shares its count.
+  const seenKeys: string[] = [];
+  const canon = (name: string) => {
+    const k = bandKey(name);
+    const hit = seenKeys.find((s) => (k.length >= 5 && s.startsWith(k)) || (s.length >= 5 && k.startsWith(s)));
+    if (hit) return hit;
+    seenKeys.push(k);
+    return k;
+  };
+  const caps = new Map<string, number>();
+  for (const [b, n] of Object.entries(cfg.bandLimits ?? {})) caps.set(canon(b), n);
+  const used = new Map<string, number>();
+  let newOnes = 0;
+  const out: WeeklyPick[] = [];
+  for (const p of picks) {
+    if (p.kind === 'show' && p.date && (p.date < start || p.date > end)) continue;
+    if (p.kind === 'new_artist') {
+      if (newOnes >= cfg.newArtists) continue;
+      newOnes++;
+    }
+    const k = canon(p.artist);
+    const cap = caps.get(k) ?? cfg.maxPerBand;
+    if ((used.get(k) ?? 0) >= cap) continue;
+    used.set(k, (used.get(k) ?? 0) + 1);
+    out.push(p);
+    if (out.length >= cfg.picks) break;
+  }
+  return out;
 }
 
 export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[], baseUrl = 'https://api.anthropic.com'): Promise<CurateResult> {
@@ -119,9 +255,7 @@ export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[
   const total = { searches: 0, inputTokens: 0, outputTokens: 0 };
   let text = '';
 
-  // The newer search tool filters results before they reach the model (far fewer
-  // input tokens). Fall back to the basic tool if this account/model rejects it.
-  let toolType = 'web_search_20260209';
+  let tier = 0;
 
   // Long research turns come back as "pause_turn": send the paused message back unchanged to continue.
   for (let round = 0; round < 6; round++) {
@@ -133,16 +267,18 @@ export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[
           model: cfg.model,
           max_tokens: 8000,
           messages,
-          tools: [{ type: toolType, name: 'web_search', max_uses: 15 }],
+          tools: [
+            { type: TOOL_TIERS[tier].search, name: 'web_search', max_uses: 8, blocked_domains: BLOCKED },
+            { type: TOOL_TIERS[tier].fetch, name: 'web_fetch', max_uses: 8, max_content_tokens: 8000 },
+          ],
         }),
       });
     let r = await send();
-    if (r.status === 400 && round === 0 && toolType !== 'web_search_20250305') {
+    while (r.status === 400 && round === 0 && tier < TOOL_TIERS.length - 1) {
       const peek = await r.clone().text();
-      if (/web_search|tool/i.test(peek)) {
-        toolType = 'web_search_20250305';
-        r = await send();
-      }
+      if (!/web_search|web_fetch|tool/i.test(peek)) break;
+      tier++;
+      r = await send();
     }
     const j = (await r.json()) as {
       content?: { type: string; text?: string }[];
@@ -180,7 +316,8 @@ export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[
       highlight: p.highlight ? String(p.highlight).slice(0, 120) : null,
       why: String(p.why ?? '').slice(0, 600),
       links: (Array.isArray(p.links) ? p.links : []).map(String).filter((l) => /^https?:\/\//.test(l)).slice(0, 5),
+      caveats: p.caveats ? String(p.caveats).slice(0, 400) : null,
     }))
     .filter((p) => p.artist);
-  return { picks, raw: text.slice(0, 20000), tool: toolType, ...total };
+  return { picks: enforce(picks, cfg), raw: text.slice(0, 20000), tool: TOOL_TIERS[tier].search, ...total };
 }

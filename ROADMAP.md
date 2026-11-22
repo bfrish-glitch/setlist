@@ -17,7 +17,7 @@ A shared **This Week** playlist for a small group of friends: the week's standou
 | Friends group, invite link, shared playlists | ✅ Live |
 | Paste-an-email importer (7/7 on the real email in testing) | ✅ Live, being tested on real data |
 | archive.org search + Gizz Tapes fallbacks | ✅ Live |
-| Weekly picks in the app (Phase 4) | ✅ Built; first real run once the API key is added |
+| Weekly picks in the app (Phase 4) | ✅ Live. Prompt v2 (wide net, 14-day window, Goose max 1) deployed Nov 22 |
 | Next up | LivePhish or YouTube search, then Phase 5 (friends layer) |
 
 ## Decisions so far
@@ -85,6 +85,7 @@ The friend's prompt moves into Setlist. Once a week the server researches the we
 - **Run now:** a button to generate this week's list on demand (handy while tuning the prompt).
 - **Cost:** first real run (Nov 22) was 23 searches + 1.3M tokens on Sonnet 5.5, about $2.90 (~$12/month weekly). Mostly search results re-read as input. Switched to the filtering search tool (web_search_20260209) with a 15-search cap; each run now shows an estimated $ in the panel. Next levers if still high: domain focus, fewer shows per band, Haiku for the search pass.
 - **How it publishes:** the server does the research (Durable Object alarm = the weekly schedule, Claude + web search, picks stored as JSON). The first group member's app to open afterward claims the run and builds the playlist with its own resolver and logins, so nugs sources get included when Barry's phone does it. Draft mode: the owner reviews in Services → Weekly picks → Review & publish.
+- **Prompt v2 (Nov 22):** wide net across jam + bluegrass with a watchlist instead of a fixed band list; shows from the last 14 days only; opens recap listing pages (JamBase, L4LM, elgoose fan reviews, Ryan Storm's Substack, phish.net) before searching; scores picks on agreement between sources and downgrades panned shows; per-band caps (Goose max 1, others max 2) enforced in code; ticket-spam domains blocked; up to 8 searches + 8 capped page fetches.
 - Paste-the-email stays as a manual fallback.
 
 ### Phase 5: The friends layer

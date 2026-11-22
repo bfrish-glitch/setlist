@@ -38,6 +38,7 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
   const [info, setInfo] = useState<WeeklyInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<WeeklyConfig | null>(null);
+  const [limitsText, setLimitsText] = useState('');
   const [editing, setEditing] = useState(false);
   const [review, setReview] = useState<WeeklyRun | null>(null);
   /** Set when Run now is tapped: keep checking until that run is done. */
@@ -129,13 +130,26 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
           Waiting on the Anthropic API key. Add it as the repo secret ANTHROPIC_API_KEY, then redeploy the server.
         </div>
       )}
-      <div className="sub wrap">Bands: {cfg.bands.join(', ')} · up to {cfg.showsPerBand} shows each · {cfg.newArtists} new artist{cfg.newArtists === 1 ? '' : 's'}</div>
+      <div className="sub wrap">
+        Up to {cfg.picks} jams from the last {cfg.windowDays} days · max {cfg.maxPerBand} per band
+        {Object.entries(cfg.bandLimits ?? {}).map(([b, n]) => ` · ${b} max ${n}`).join('')} · {cfg.newArtists} new artist
+        {cfg.newArtists === 1 ? '' : 's'}
+      </div>
+      <div className="sub wrap">Always checks: {cfg.watchlist.join(', ')}, plus anything great in the recap sites.</div>
 
       {last && <RunSummary run={last} owner={owner} model={cfg.model} onReview={() => setReview(last)} />}
 
       {owner && !editing && (
         <div className="btns">
-          <button onClick={() => { setDraft({ ...cfg }); setEditing(true); }}>Edit settings & prompt</button>
+          <button
+            onClick={() => {
+              setDraft({ ...cfg });
+              setLimitsText(Object.entries(cfg.bandLimits ?? {}).map(([b, n]) => `${b}: ${n}`).join('\n'));
+              setEditing(true);
+            }}
+          >
+            Edit settings & prompt
+          </button>
           <button onClick={() => save({ enabled: !cfg.enabled })}>{cfg.enabled ? 'Pause' : 'Resume'}</button>
         </div>
       )}
@@ -143,24 +157,46 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
       {owner && editing && draft && (
         <div className="weekly-form">
           <label>
-            Bands (one per line)
+            Watchlist: bands checked every week (one per line)
             <textarea
-              rows={3}
-              value={draft.bands.join('\n')}
-              onChange={(e) => setDraft({ ...draft, bands: e.target.value.split('\n') })}
+              rows={5}
+              value={draft.watchlist.join('\n')}
+              onChange={(e) => setDraft({ ...draft, watchlist: e.target.value.split('\n') })}
+            />
+          </label>
+          <label>
+            Band limits (one per line, like “Goose: 1”)
+            <textarea
+              rows={2}
+              value={limitsText}
+              onChange={(e) => setLimitsText(e.target.value)}
             />
           </label>
           <div className="row-fields">
             <label>
-              Shows per band
-              <select value={draft.showsPerBand} onChange={(e) => setDraft({ ...draft, showsPerBand: +e.target.value })}>
+              Jams per week
+              <select value={draft.picks} onChange={(e) => setDraft({ ...draft, picks: +e.target.value })}>
+                {[4, 5, 6, 7, 8, 9, 10, 12].map((n) => <option key={n}>{n}</option>)}
+              </select>
+            </label>
+            <label>
+              Max per band
+              <select value={draft.maxPerBand} onChange={(e) => setDraft({ ...draft, maxPerBand: +e.target.value })}>
                 {[1, 2, 3].map((n) => <option key={n}>{n}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="row-fields">
+            <label>
+              Shows from the last
+              <select value={draft.windowDays} onChange={(e) => setDraft({ ...draft, windowDays: +e.target.value })}>
+                {[7, 10, 14, 21, 30].map((n) => <option key={n} value={n}>{n} days</option>)}
               </select>
             </label>
             <label>
               New artists
               <select value={draft.newArtists} onChange={(e) => setDraft({ ...draft, newArtists: +e.target.value })}>
-                {[0, 1, 2, 3, 4, 5].map((n) => <option key={n}>{n}</option>)}
+                {[0, 1, 2, 3].map((n) => <option key={n}>{n}</option>)}
               </select>
             </label>
           </div>
@@ -189,14 +225,20 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
             <textarea rows={12} value={draft.prompt ?? ''} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} />
           </label>
           <p className="fine">
-            Placeholders: {'{{bands}}'}, {'{{showsPerBand}}'}, {'{{newArtists}}'}, {'{{today}}'}, {'{{already}}'} (shows picked in past weeks). The
-            output format is added automatically.
+            Placeholders: {'{{today}}'}, {'{{windowStart}}'}, {'{{watchlist}}'}, {'{{picks}}'}, {'{{maxPerBand}}'}, {'{{bandLimits}}'},{' '}
+            {'{{newArtists}}'}, {'{{already}}'} (shows picked in past weeks). The output format is added automatically, and band limits are
+            enforced even if the prompt is edited.
           </p>
           <div className="btns">
             <button
               className="primary"
               onClick={async () => {
-                await save({ ...draft, bands: draft.bands.map((b) => b.trim()).filter(Boolean) });
+                const bandLimits: Record<string, number> = {};
+                for (const line of limitsText.split('\n')) {
+                  const m = /^(.+?)\s*[:=]\s*(\d)\s*$/.exec(line.trim());
+                  if (m) bandLimits[m[1].trim()] = Number(m[2]);
+                }
+                await save({ ...draft, watchlist: draft.watchlist.map((b) => b.trim()).filter(Boolean), bandLimits });
                 setEditing(false);
               }}
             >
@@ -267,6 +309,7 @@ function RunSummary({ run, owner, model, onReview }: { run: WeeklyRun; owner: bo
               {p.date ? ` · ${p.date}` : ''}
               {p.highlight ? ` · ★ ${p.highlight}` : ''}
               <div className="sub wrap">{p.why}</div>
+              {p.caveats && <div className="sub wrap">Caveat: {p.caveats}</div>}
             </li>
           ))}
           {run.missed.length > 0 && <li className="warn">Couldn’t find: {run.missed.join(', ')}</li>}

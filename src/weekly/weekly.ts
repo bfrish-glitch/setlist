@@ -18,14 +18,18 @@ export interface WeeklyPick {
   highlight: string | null;
   why: string;
   links: string[];
+  caveats?: string | null;
 }
 
 export interface WeeklyConfig {
   enabled: boolean;
   day: number;
   hour: number;
-  bands: string[];
-  showsPerBand: number;
+  watchlist: string[];
+  picks: number;
+  maxPerBand: number;
+  bandLimits: Record<string, number>;
+  windowDays: number;
   newArtists: number;
   autoPublish: boolean;
   prompt?: string;
@@ -75,8 +79,9 @@ export function toRawPicks(p: WeeklyPick): RawPick[] {
   ]
     .filter(Boolean)
     .join(' ');
+  const note = p.caveats ? `${p.why} Caveat: ${p.caveats}` : p.why;
   const links = p.links.length ? p.links : [undefined];
-  return links.map((link) => ({ link, text, note: p.why }));
+  return links.map((link) => ({ link, text, note }));
 }
 
 /** Resolve one pick, trying each of its links in turn, then plain artist + date. */
@@ -88,7 +93,9 @@ export async function resolveWeeklyPick(p: WeeklyPick): Promise<Pick> {
     last = r;
   }
   if (p.date) {
-    const r = await resolvePick({ text: `${p.artist} ${p.date} ${p.venue ?? ''}`, note: p.why });
+    // No link worked: look the show up by artist + date, keeping the highlight cue.
+    const [raw] = toRawPicks({ ...p, links: [] });
+    const r = await resolvePick(raw);
     if (r.status === 'ok') return r;
   }
   return last!;
