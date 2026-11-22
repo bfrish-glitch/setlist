@@ -87,7 +87,11 @@ export default {
         case 'GET /resolve/youtube':
           return json(await youtubeMeta(need(url, 'id')));
         case 'GET /resolve/archive':
-          return json(await archiveItem(need(url, 'id')));
+          return json(await cached(req, () => archiveItem(need(url, 'id'))));
+        case 'GET /resolve/archive-search':
+          return json(await cached(req, () => archiveSearch(url.searchParams)));
+        case 'GET /resolve/gizztapes':
+          return json(await cached(req, () => gizzTapes(need(url, 'date'))));
         case 'GET /nugs/stream':
           return json(await stream(bearer(req), url.searchParams));
         default:
@@ -358,5 +362,94 @@ async function archiveItem(id: string) {
     date: String(first(m.date) ?? ''),
     venue: [first(m.venue), first(m.coverage)].filter(Boolean).join(', '),
     tracks,
+  };
+}
+
+/* ---- caching for public lookups (archive.org / Gizz Tapes) ----------- */
+
+/** Cache a public lookup for an hour at Cloudflare's edge, to go easy on archive.org. */
+async function cached<T>(req: Request, fn: () => Promise<T>): Promise<T> {
+  const cache = (caches as unknown as { default: Cache }).default;
+  const key = new Request(new URL(req.url).toString(), { method: 'GET' });
+  const hit = await cache.match(key);
+  if (hit) return hit.json<T>();
+  const data = await fn();
+  await cache.put(key, new Response(JSON.stringify(data), { headers: { 'Cache-Control': 'max-age=3600', 'Content-Type': 'application/json' } }));
+  return data;
+}
+
+/* ---- archive.org search: find tapes by band + date -------------------- */
+
+// Bands with their own archive.org collection; everyone else is searched by creator name.
+const ARCHIVE_COLLECTIONS: Record<string, string> = {
+  'billy strings': 'BillyStrings',
+  'king gizzard and lizard wizard': 'KingGizzardAndTheLizardWizard',
+  'king gizzard': 'KingGizzardAndTheLizardWizard',
+};
+const normName = (s: string) =>
+  s.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9 ]+/g, ' ').replace(/\bthe\b/g, ' ').replace(/\s+/g, ' ').trim();
+
+async function archiveSearch(p: URLSearchParams) {
+  const artist = p.get('artist') ?? '';
+  const date = p.get('date') ?? '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !artist.trim()) throw new HttpError(400, 'artist and date (YYYY-MM-DD) required');
+  const coll = ARCHIVE_COLLECTIONS[normName(artist)];
+  const who = coll ? `collection:${coll}` : `creator:("${artist.replace(/"/g, '')}")`;
+  const q = `${who} AND (date:[${date} TO ${date}] OR identifier:*${date}*)`;
+  const r = await fetch(
+    `https://archive.org/advancedsearch.php?${new URLSearchParams({ q, rows: '25', output: 'json' })}&fl[]=identifier&fl[]=date&fl[]=title&fl[]=downloads`,
+  );
+  if (!r.ok) throw new HttpError(502, `archive.org search returned ${r.status}`);
+  const j = await r.json<{ response?: { docs?: Record<string, any>[] } }>();
+  const compact = date.replace(/-/g, '');
+  const docs = (j.response?.docs ?? []).filter((d) => {
+    const id = String(d.identifier);
+    return id.includes(date) || id.includes(compact) || String(d.date ?? '').startsWith(date);
+  });
+  // Soundboards first, then 24-bit/flac sources, then the most downloaded.
+  const score = (id: string) => (/sbd|soundboard/i.test(id) ? 4 : 0) + (/flac/i.test(id) ? 1 : 0);
+  docs.sort((a, b) => score(String(b.identifier)) - score(String(a.identifier)) || Number(b.downloads ?? 0) - Number(a.downloads ?? 0));
+  return { identifiers: docs.map((d) => String(d.identifier)) };
+}
+
+/* ---- Gizz Tapes (King Gizzard): setlist + archive.org recordings ------- */
+
+async function gizzTapes(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpError(400, 'date must be YYYY-MM-DD');
+  const r = await fetch(`https://tapes.kglw.net/api/v1/shows/${date}.json`, { headers: { Accept: 'application/json' } });
+  if (r.status === 404) throw new HttpError(404, 'Gizz Tapes has no show on that date');
+  if (!r.ok) throw new HttpError(502, `Gizz Tapes returned ${r.status}`);
+  const j = await r.json<Record<string, any>>();
+  const show = (j.show ?? j) as Record<string, any>;
+  const compact = date.replace(/-/g, '');
+  const recs = ((show.recordings ?? []) as Record<string, any>[])
+    .map((rec) => {
+      const prefix = String(rec.files_path_prefix ?? '');
+      const id = /archive\.org\/download\/([^/]+)/.exec(prefix)?.[1] ?? String(rec.identifier ?? '');
+      return { rec, prefix, id };
+    })
+    // A recording whose archive id doesn't carry the show date is probably mislabeled.
+    .filter((x) => x.prefix && (x.id.includes(date) || x.id.includes(compact)) && !x.rec.is_incomplete);
+  const score = (x: { rec: Record<string, any> }) => (String(x.rec.type).toUpperCase() === 'SBD' ? 10 : 0);
+  recs.sort((a, b) => score(b) - score(a) || String(b.rec.uploaded_at ?? '').localeCompare(String(a.rec.uploaded_at ?? '')));
+  const setlist = ((show.sets ?? []) as Record<string, any>[]).flatMap((set) =>
+    ((set.songs ?? []) as Record<string, any>[]).map((s) => String(s.song?.name ?? s.name ?? '')),
+  );
+  return {
+    date,
+    venue: [show.venue?.name, show.venue?.city ?? show.venue?.location].filter(Boolean).join(', '),
+    setlist,
+    recordings: recs.map(({ rec, prefix, id }) => ({
+      id,
+      type: String(rec.type ?? '').toUpperCase() || 'AUD',
+      tracks: ((rec.files ?? []) as Record<string, any>[])
+        .filter((f) => /\.(mp3|m4a|ogg|flac)$/i.test(String(f.filename ?? '')))
+        .map((f) => ({
+          file: String(f.filename),
+          title: String(f.title ?? f.filename).replace(/\.[^.]+$/, ''),
+          durationSec: parseLength(f.length),
+          url: prefix.replace(/\/?$/, '/') + String(f.filename).split('/').map(encodeURIComponent).join('/'),
+        })),
+    })),
   };
 }

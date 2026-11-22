@@ -2,6 +2,7 @@ import type { ShowRef, SourceId, SourceRef, Track } from '../types';
 import { newKey } from '../types';
 import { parseYouTube, youtubeTrack } from '../sources/youtube';
 import { archiveTracks, fetchArchiveItem } from '../sources/archive';
+import { SERVER } from '../config';
 import { bestSource, relistenApi, toTrack, venueLine, type RelistenArtist } from '../sources/relisten';
 import { nugs, nugsApi, nugsToTrack, type NugsShow } from '../sources/nugs';
 import { findDate, normArtist, normTitle, pairSetlists, shortNote, toIsoDate, type RawPick } from './text';
@@ -111,6 +112,74 @@ async function findNugs(artist: string, date: string): Promise<ShowData | null> 
   }
 }
 
+const isGizz = (artist: string) => normArtist(artist).includes('king gizzard');
+
+async function serverJson<T>(path: string): Promise<T | null> {
+  try {
+    const r = await fetch(`${SERVER}${path}`);
+    return r.ok ? ((await r.json()) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Search archive.org for a tape of this band on this date (catches uploads Relisten hasn't indexed). */
+async function findArchive(artist: string, date: string): Promise<ShowData | null> {
+  const res = await serverJson<{ identifiers: string[] }>(
+    `/resolve/archive-search?artist=${encodeURIComponent(artist)}&date=${date}`,
+  );
+  for (const id of res?.identifiers.slice(0, 3) ?? []) {
+    try {
+      const item = await fetchArchiveItem(id);
+      const tracks = archiveTracks(item);
+      if (tracks.length) return { source: 'archive', showId: id, artist, date, venue: item.venue, tracks };
+    } catch {
+      /* try the next tape */
+    }
+  }
+  return null;
+}
+
+interface GizzShow {
+  date: string;
+  venue: string;
+  recordings: { id: string; type: string; tracks: { file: string; title: string; durationSec?: number; url: string }[] }[];
+}
+
+/** King Gizzard via Gizz Tapes: soundboards first, archive.org files underneath. */
+async function loadGizz(date: string): Promise<ShowData | null> {
+  const g = await serverJson<GizzShow>(`/resolve/gizztapes?date=${date}`);
+  const rec = g?.recordings.find((r) => r.tracks.length);
+  if (!g || !rec) return null;
+  const artist = 'King Gizzard & The Lizard Wizard';
+  return {
+    source: 'archive',
+    showId: rec.id,
+    artist,
+    date,
+    venue: g.venue,
+    tracks: rec.tracks.map((t) => ({
+      key: newKey(),
+      source: 'archive' as const,
+      sourceId: `${rec.id}/${t.file}`,
+      title: t.title,
+      artist,
+      subtitle: [date, g.venue, rec.type === 'SBD' ? 'soundboard' : ''].filter(Boolean).join(' · '),
+      durationSec: t.durationSec,
+      streamUrl: t.url,
+    })),
+  };
+}
+
+/** Free tapes when Relisten doesn't have the show yet: Gizz Tapes for KGLW, archive.org search for everyone. */
+async function findTapes(artist: string, date: string): Promise<ShowData | null> {
+  if (isGizz(artist)) {
+    const g = await loadGizz(date);
+    if (g) return g;
+  }
+  return findArchive(artist, date);
+}
+
 /* ---- merging ------------------------------------------------------- */
 
 /** Attach `other` as an alternate source on each matching song of `base`. */
@@ -215,6 +284,13 @@ async function crossMatch(base: ShowData): Promise<SourceId[]> {
         if (r) {
           merge(base, r);
           found.push('relisten');
+        } else if (base.source !== 'archive') {
+          // Not on Relisten yet: look for a free tape directly.
+          const t = await findTapes(base.artist, base.date!);
+          if (t) {
+            merge(base, t);
+            found.push('archive');
+          }
         }
       }),
     );
@@ -340,6 +416,12 @@ async function fromLink(link: string, context?: string): Promise<Pick> {
     return pick;
   }
 
+  if (host === 'tapes.kglw.net' && /^\d{4}-\d{2}-\d{2}$/.test(parts[0] ?? '')) {
+    const base = (await loadGizz(parts[0])) ?? (await loadRelisten((await relistenArtistFor('King Gizzard & The Lizard Wizard'))?.slug ?? 'kgatlw', parts[0]));
+    if (!base) throw new Error('No King Gizzard tape for that date on Gizz Tapes or Relisten yet');
+    return finish(link, context, base, await crossMatch(base));
+  }
+
   if (host === 'phish.in' && /^\d{4}-\d{2}-\d{2}$/.test(parts[0] ?? '')) {
     const base = await loadRelisten('phish', parts[0]);
     if (!base) throw new Error('Relisten doesn’t have that Phish show yet');
@@ -408,12 +490,20 @@ async function fromText(text: string): Promise<Pick> {
   if (artist) {
     const base = await loadRelisten(artist.slug, d.date);
     if (base) return finish(text, text, base, await crossMatch(base));
+    const tapes = await findTapes(artist.name, d.date);
+    if (tapes) return finish(text, text, tapes, await crossMatch(tapes));
     const viaNugs = await findNugs(artist.name, d.date);
     if (viaNugs) return finish(text, text, viaNugs, await crossMatch(viaNugs));
-    throw new Error(`Couldn’t find ${artist.name} on ${d.date} on Relisten or nugs`);
+    throw new Error(`Couldn’t find ${artist.name} on ${d.date} on Relisten, archive.org or nugs`);
   }
-  // Artist not on Relisten: try nugs search with the text before the date.
-  const guess = text.slice(0, text.toLowerCase().indexOf(d.match)).replace(/[-–|:,·]+$/g, '').trim();
+  // Artist not on Relisten: try archive.org and nugs with the text before the date.
+  const guess = text
+    .slice(0, text.toLowerCase().indexOf(d.match))
+    .replace(/^.*\b(radar|pick|picks)\b[:\s]*/i, '')
+    .replace(/[-–|:,·•\s]+$/g, '')
+    .trim();
+  const tapes = guess && guess.length < 60 ? await findTapes(guess, d.date) : null;
+  if (tapes) return finish(text, text, tapes, await crossMatch(tapes));
   const viaNugs = guess ? await findNugs(guess, d.date) : null;
   if (viaNugs) return finish(text, text, viaNugs, await crossMatch(viaNugs));
   throw new Error('Couldn’t tell which artist that is');
