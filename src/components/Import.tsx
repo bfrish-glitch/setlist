@@ -12,10 +12,28 @@ import { Header, SourceBadge, TrackRow } from './common';
 
 type Choice = number | 'all'; // song index, or the full show
 
+/** Longest song in the show: for jam bands that's almost always the big jam. */
+function longest(p: Pick) {
+  let best = 0;
+  p.tracks.forEach((t, i) => {
+    if ((t.durationSec ?? 0) > (p.tracks[best].durationSec ?? 0)) best = i;
+  });
+  return best;
+}
+
+/**
+ * What goes in the playlist when nobody picked: the song the email names,
+ * else the longest song. Never the full show by default; that's a choice.
+ */
+function defaultChoice(p: Pick): Choice {
+  if (p.single) return 0;
+  return p.focus ?? longest(p);
+}
+
 function chosenTracks(p: Pick, c: Choice | undefined): Track[] {
   if (p.status !== 'ok' || !p.tracks.length) return [];
   const pickNote = p.note;
-  const choice = c ?? p.focus ?? (p.single ? 0 : 'all');
+  const choice = c ?? defaultChoice(p);
   if (choice === 'all') return p.tracks.map((t, i) => (i === 0 && pickNote ? { ...t, note: pickNote } : t));
   const t = p.tracks[choice];
   return t ? [{ ...t, note: t.note ?? pickNote }] : [];
@@ -81,6 +99,7 @@ export function Import({ onAdd, switcher }: { onAdd: (t: Track[], suggestedName?
   };
 
   const ok = picks.filter((p): p is Pick => p?.status === 'ok');
+  const pending = picks.filter((p) => p === null).length;
   const selected = ok.flatMap((p) => chosenTracks(p, choices[p.id]));
   const failed = picks.filter((p) => p?.status === 'error').length;
   const dates = ok.map((p) => p.date).filter(Boolean).sort() as string[];
@@ -123,15 +142,19 @@ export function Import({ onAdd, switcher }: { onAdd: (t: Track[], suggestedName?
       {picks.length > 0 && (
         <div className="import-summary">
           <span>
+            {pending ? `Looking up ${pending} more… · ` : ''}
             {ok.length} of {picks.length} found{failed ? ` · ${failed} need a fix` : ''}
             {selected.length ? ` · ${selected.length} song${selected.length > 1 ? 's' : ''} selected` : ''}
           </span>
           <div className="btns">
-            <button className="primary" disabled={!selected.length} onClick={() => player.playQueue(selected, 0)}>
+            <button className="primary" disabled={!selected.length || pending > 0} onClick={() => player.playQueue(selected, 0)}>
               ▶ Play
             </button>
-            <button disabled={!selected.length} onClick={() => onAdd(selected, dates.length ? weekName : undefined)}>
-              + Add to playlist
+            <button
+              disabled={!selected.length || pending > 0}
+              onClick={() => onAdd(selected, dates.length ? weekName : undefined)}
+            >
+              {pending ? 'Wait for all cards…' : `+ Add ${selected.length} song${selected.length === 1 ? '' : 's'} to playlist`}
             </button>
           </div>
         </div>
@@ -189,7 +212,8 @@ function PickCard(props: { pick: Pick; choice?: Choice; onChoose: (c: Choice) =>
     );
   }
 
-  const choice: Choice = props.choice ?? p.focus ?? (p.single ? 0 : 'all');
+  const choice: Choice = props.choice ?? defaultChoice(p);
+  const guessed = p.focus == null && !p.single;
   const reach = new Set(p.foundOn);
 
   return (
@@ -220,8 +244,9 @@ function PickCard(props: { pick: Pick; choice?: Choice; onChoose: (c: Choice) =>
             <option value="all">Full show ({p.tracks.length} songs)</option>
             {p.tracks.map((t, i) => (
               <option key={t.key} value={i}>
-                {i === p.focus ? '★ ' : ''}
+                {i === p.focus ? '★ ' : guessed && i === longest(p) ? '☆ ' : ''}
                 {t.title}
+                {guessed && i === longest(p) ? ' (longest, a guess)' : ''}
               </option>
             ))}
           </select>
@@ -229,6 +254,9 @@ function PickCard(props: { pick: Pick; choice?: Choice; onChoose: (c: Choice) =>
             {open ? 'Hide' : 'Setlist'}
           </button>
         </div>
+      )}
+      {guessed && props.choice == null && (
+        <div className="sub wrap">The email doesn’t name a song, so this is the longest jam. Change it if you know better.</div>
       )}
       {(open || p.single) && (
         <div className="list">
