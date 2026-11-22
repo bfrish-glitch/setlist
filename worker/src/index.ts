@@ -16,6 +16,7 @@ export { Group } from './group';
 interface Env {
   GROUP: DurableObjectNamespace;
   ANTHROPIC_API_KEY?: string;
+  YOUTUBE_API_KEY?: string;
 }
 
 const AUTH = 'https://id.nugs.net';
@@ -93,6 +94,9 @@ export default {
           return json(await cached(req, () => archiveItem(need(url, 'id'))));
         case 'GET /resolve/archive-search':
           return json(await cached(req, () => archiveSearch(url.searchParams)));
+        case 'GET /resolve/youtube-search':
+          if (!env.YOUTUBE_API_KEY) throw new HttpError(503, 'YouTube search isn’t set up yet', 'no_key');
+          return json(await cached(req, () => youtubeSearch(env.YOUTUBE_API_KEY!, need(url, 'q')), 7 * 86400));
         case 'GET /resolve/gizztapes':
           return json(await cached(req, () => gizzTapes(need(url, 'date'))));
         case 'GET /nugs/stream':
@@ -387,13 +391,13 @@ async function archiveItem(id: string) {
 /* ---- caching for public lookups (archive.org / Gizz Tapes) ----------- */
 
 /** Cache a public lookup for an hour at Cloudflare's edge, to go easy on archive.org. */
-async function cached<T>(req: Request, fn: () => Promise<T>): Promise<T> {
+async function cached<T>(req: Request, fn: () => Promise<T>, maxAge = 3600): Promise<T> {
   const cache = (caches as unknown as { default: Cache }).default;
   const key = new Request(new URL(req.url).toString(), { method: 'GET' });
   const hit = await cache.match(key);
   if (hit) return hit.json<T>();
   const data = await fn();
-  await cache.put(key, new Response(JSON.stringify(data), { headers: { 'Cache-Control': 'max-age=3600', 'Content-Type': 'application/json' } }));
+  await cache.put(key, new Response(JSON.stringify(data), { headers: { 'Cache-Control': `max-age=${maxAge}`, 'Content-Type': 'application/json' } }));
   return data;
 }
 
@@ -543,4 +547,54 @@ async function findShow(token: string, artist: string, date: string) {
     offset = next;
   }
   throw new HttpError(404, `nugs doesn’t have ${a.name} on ${date}`, 'no_show');
+}
+
+/* ---- YouTube search (Data API v3; 100 searches/day free) ------------- */
+
+function isoDurationSec(d: string) {
+  const m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(d ?? '');
+  return m ? Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0) : undefined;
+}
+
+async function youtubeSearch(key: string, q: string) {
+  const query = q.trim().slice(0, 200);
+  if (query.length < 3) throw new HttpError(400, 'Search is too short');
+  const sr = await fetch(
+    `https://www.googleapis.com/youtube/v3/search?${new URLSearchParams({
+      part: 'snippet',
+      type: 'video',
+      videoEmbeddable: 'true',
+      maxResults: '8',
+      q: query,
+      key,
+    })}`,
+  );
+  const sj = await sr.json<{ items?: { id: { videoId: string }; snippet: Record<string, any> }[]; error?: { message?: string } }>();
+  if (!sr.ok) throw new HttpError(sr.status === 403 ? 429 : 502, sj.error?.message ?? `YouTube returned ${sr.status}`);
+  const items = sj.items ?? [];
+  // Durations tell a single song from a full-show upload (videos.list costs 1 unit).
+  const ids = items.map((i) => i.id.videoId).filter(Boolean);
+  const durations = new Map<string, number | undefined>();
+  if (ids.length) {
+    const vr = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({ part: 'contentDetails', id: ids.join(','), key })}`,
+    );
+    if (vr.ok) {
+      const vj = await vr.json<{ items?: { id: string; contentDetails: { duration: string } }[] }>();
+      for (const v of vj.items ?? []) durations.set(v.id, isoDurationSec(v.contentDetails.duration));
+    }
+  }
+  return {
+    results: items.map((i) => ({
+      id: i.id.videoId,
+      title: String(i.snippet.title ?? '')
+        .replace(/&amp;/g, '&')
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"'),
+      channel: String(i.snippet.channelTitle ?? ''),
+      publishedAt: String(i.snippet.publishedAt ?? ''),
+      thumbnail: i.snippet.thumbnails?.medium?.url ?? i.snippet.thumbnails?.default?.url,
+      durationSec: durations.get(i.id.videoId),
+    })),
+  };
 }

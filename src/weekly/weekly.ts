@@ -3,6 +3,8 @@ import { playlists } from '../store/playlists';
 import { resolvePick, type Pick } from '../resolve/resolve';
 import type { RawPick } from '../resolve/text';
 import type { Track } from '../types';
+import { ensureFreeSource, findSongVideo, videoToTrack } from '../sources/ytsearch';
+import { newKey } from '../types';
 
 /**
  * Weekly picks, app side. The server researches the week; whichever group
@@ -98,6 +100,25 @@ export async function resolveWeeklyPick(p: WeeklyPick): Promise<Pick> {
     const r = await resolvePick(raw);
     if (r.status === 'ok') return r;
   }
+  // Last resort: a YouTube video of that song (new bands, or shows with no tape yet).
+  const v = await findSongVideo(p.artist, p.highlight, p.date);
+  if (v) {
+    const note = p.caveats ? `${p.why} Caveat: ${p.caveats}` : p.why;
+    const t = videoToTrack(v, p.artist, [p.date, p.venue].filter(Boolean).join(' · ') || undefined);
+    return {
+      id: newKey(),
+      input: `youtube:${v.id}`,
+      status: 'ok',
+      artist: p.artist,
+      date: p.date ?? undefined,
+      venue: p.venue ?? undefined,
+      foundOn: ['youtube'],
+      tracks: [{ ...t, note }],
+      focus: 0,
+      single: true,
+      note,
+    };
+  }
   return last!;
 }
 
@@ -153,7 +174,8 @@ export async function autoPublishIfReady(onProgress?: (msg: string) => void): Pr
     if (!ok) return null;
     onProgress?.(`Building ${weekName(run.finishedAt ?? run.startedAt)}…`);
     const resolved = await Promise.all(run.picks.map((p) => resolveWeeklyPick(p).catch(() => null)));
-    const tracks = resolved.flatMap((r) => (r ? songsFor(r) : []));
+    // Songs only on nugs/Spotify get a YouTube backup so everyone can play them.
+    const tracks = await Promise.all(resolved.flatMap((r) => (r ? songsFor(r) : [])).map((t) => ensureFreeSource(t)));
     const missed = run.picks.filter((_, i) => resolved[i]?.status !== 'ok').map((p) => `${p.artist}${p.date ? ` ${p.date}` : ''}`);
     if (!tracks.length) return null;
     const p = await publishWeek(run, tracks, missed);

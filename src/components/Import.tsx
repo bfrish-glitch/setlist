@@ -4,6 +4,7 @@ import { resolvePick, type Pick } from '../resolve/resolve';
 import { splitInput } from '../resolve/text';
 import { player, usePlayer } from '../player/engine';
 import { Header, SourceBadge, TrackRow } from './common';
+import { ensureFreeSource } from '../sources/ytsearch';
 
 /**
  * Paste anything (one link, several, a whole email, or "Phish 7/30/25")
@@ -152,7 +153,11 @@ export function Import({ onAdd, switcher }: { onAdd: (t: Track[], suggestedName?
             </button>
             <button
               disabled={!selected.length || pending > 0}
-              onClick={() => onAdd(selected, dates.length ? weekName : undefined)}
+              onClick={async () => {
+                // Songs only on nugs/Spotify get a YouTube backup so the whole group can play them.
+                const withBackups = await Promise.all(selected.map((t) => ensureFreeSource(t)));
+                onAdd(withBackups, dates.length ? weekName : undefined);
+              }}
             >
               {pending ? 'Wait for all cards…' : `+ Add ${selected.length} song${selected.length === 1 ? '' : 's'} to playlist`}
             </button>

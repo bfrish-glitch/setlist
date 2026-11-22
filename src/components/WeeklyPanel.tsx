@@ -14,6 +14,7 @@ import {
   type WeeklyRun,
 } from '../weekly/weekly';
 import { TrackRow } from './common';
+import { ensureFreeSource } from '../sources/ytsearch';
 
 // Claude API list prices (USD): per million tokens, and per search. Update if prices change.
 const PRICES: Record<string, { in: number; out: number }> = {
@@ -335,7 +336,8 @@ function ReviewSheet({ run, onClose }: { run: WeeklyRun; onClose: (msg?: string)
       run.picks.map(async (p) => {
         const r = await resolveWeeklyPick(p).catch(() => null);
         const label = `${p.artist}${p.date ? ` · ${p.date}` : ''}`;
-        return r?.status === 'ok' ? { label, tracks: songsFor(r) } : { label, tracks: [], error: r?.error ?? 'Not found' };
+        if (r?.status !== 'ok') return { label, tracks: [], error: r?.error ?? 'Not found' };
+        return { label, tracks: await Promise.all(songsFor(r).map((t) => ensureFreeSource(t))) };
       }),
     ).then((x) => alive && setRows(x));
     return () => {

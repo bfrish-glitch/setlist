@@ -67,7 +67,7 @@ Each listener's player picks the first source they can play, in their own prefer
 Research findings: Relisten already matches phish.in for Phish (new shows in about 2 days). Billy Strings tapes reach archive.org within 1–3 days but not every show gets one (10/10 Everett exists only on nugs). KGLW tapes take 1–2 weeks.
 1. **archive.org search** (S): find tapes by collection + date (`BillyStrings`, `KingGizzardAndTheLizardWizard`) or `creator:` for other bands, before Relisten indexes them.
 2. **Gizz Tapes API** (S): `tapes.kglw.net/api/v1/shows/<date>.json`. More KGLW recordings than Relisten, labeled SBD/AUD, clean setlists. Prefer recordings whose ID contains the show date (one mislabeled item seen).
-3. **YouTube search** (M): YouTube Data API v3, 100 searches/day free. Search once at import time, cache the video, and review matches. This catches nugs-only shows and emerging artists. Needs a Google API key, kept on the server.
+3. **YouTube search** (M) ✅ built Nov 22, on once YOUTUBE_API_KEY is added: songs that only play on nugs/Spotify get a YouTube backup; picks with no source fall back to a YouTube video. Strict matching (artist + show date + song; covers/lessons skipped); searches cached a week.
 4. **LivePhish** (M): Barry has a subscription. LivePhish runs on nugs' platform, so it likely works like the nugs adapter (unofficial, per-user login, via the relay). Needs its own investigation first; official Phish soundboards would become an alternate for Phish picks.
 5. **Bandcamp embed** (S–M): for emerging bands and KGLW official bootlegs. Play-only iframe (no auto-advance control).
 - Also done: nugs lookups page through big catalogs (Billy Strings has 1,000+ shows) to find a show by date.
