@@ -2,13 +2,22 @@
 
 ## The goal
 
-A friend's Claude routine emails the week's best live music: one or two standout shows each from **Billy Strings, Phish and King Gizzard & the Lizard Wizard**, plus one or two **new artists**, each with a one-line reason and a working listen link (nugs.net, YouTube, archive.org, LivePhish).
+A shared **This Week** playlist for a small group of friends: the week's standout live shows from **Phish, Billy Strings and King Gizzard & the Lizard Wizard**, plus one or two **new artists**, picked automatically every week.
 
-Setlist turns that email into a shared **This Week** playlist for a small group of friends:
+- **Today:** a friend's Claude routine emails the picks; Barry pastes the email into Setlist (Browse → 🔗 Links) and it builds the playlist.
+- **Next (Phase 4):** Setlist runs the research itself every week. No email.
+- Each pick goes in as its **highlight jam**, with the full show one tap away.
+- Everyone signs in with their own Setlist name and connects whichever services they have. Each song plays from the best source *that person* can use, so friends with no subscriptions can still play nearly everything.
 
-- The email gets forwarded to Setlist, which builds the week automatically.
-- By default the playlist holds the **highlight jam** from each pick. Tap a show to play the whole thing.
-- Everyone signs in with their own Setlist name and connects whichever services they have. Each song plays from the best source *that person* can use, so friends with no subscriptions can still play nearly everything through Relisten.
+## Where things stand (Nov 21)
+
+| | Status |
+|---|---|
+| Player with Relisten, nugs, Spotify, YouTube, archive.org | ✅ Live |
+| Friends group, invite link, shared playlists | ✅ Live |
+| Paste-an-email importer (7/7 on the real email in testing) | ✅ Live, being tested on real data |
+| archive.org search + Gizz Tapes fallbacks | ✅ Live |
+| Next up | LivePhish or YouTube search, then Phase 4 (in-app weekly curation) |
 
 ## Decisions so far
 
@@ -34,7 +43,7 @@ Each listener's player picks the first source they can play, in their own prefer
 ## Phases
 
 ### Phase 1: Group accounts + shared playlists ✅
-- Cloudflare D1 database on the existing Cloudflare account (free tier), served by the existing Worker.
+- A Cloudflare Durable Object (built-in SQLite) on the existing Worker, free tier. Nothing extra to set up.
 - Invite link sign-in: one private link, pick a name, the device remembers you. Revocable.
 - Playlists move from each browser into the database. Existing local playlists migrate on first sign-in.
 - Track model upgraded to multi-source performances (above).
@@ -43,8 +52,7 @@ Each listener's player picks the first source they can play, in their own prefer
 - **YouTube** (IFrame player): needed for new-artist picks. The video has to stay visible and won't play with the phone locked, so YouTube tracks get flagged as "screen on."
 - **archive.org**: play any archive.org recording directly from its link, for tapes Relisten hasn't indexed yet.
 - **phish.in**: Relisten already uses it; links resolve straight to Relisten.
-- **Add from link** (Browse → 🔗 Link): paste YouTube, archive.org, phish.in, Relisten or nugs links. A head start on Phase 3.
-- **LivePhish**: parked. Separate subscription, and Relisten/phish.in covers the same Phish shows within about a day. Revisit if the group wants official soundboards.
+- **Add from link** (Browse → 🔗 Links): paste YouTube, archive.org, phish.in, Relisten or nugs links. A head start on Phase 3.
 
 ### Phase 3: Link resolver + fallback matcher ✅
 - Paste any listen link (nugs, YouTube, archive.org, phish.in, Relisten) and get a playable show with its setlist.
@@ -54,14 +62,15 @@ Each listener's player picks the first source they can play, in their own prefer
 - Built: Browse → 🔗 Links takes one link, many, a whole email, or text like "Phish 7/30/25". Highlight jam comes from the link (phish.in/…/tweezer) or the curator's text ("the 30-minute Tweezer"); a picker overrides it. Songs carry every source found; dated YouTube uploads play from the matched audio (Relisten/nugs) with the video as backup. Playlist songs get a ≣ Full show button and show the curator's note.
 - Note for Phase 4: nugs matching uses the importing person's nugs sign-in. A server-side import can match Relisten/archive/YouTube on its own; nugs alternates get added when someone with nugs opens the week.
 
-### Phase 3.5: More sources so fewer songs go missing (research done Nov 21) — 1 & 2 ✅
+### Phase 3.5: More sources so fewer songs go missing — 1 & 2 ✅, 3–5 next
 Research findings: Relisten already matches phish.in for Phish (new shows in about 2 days). Billy Strings tapes reach archive.org within 1–3 days but not every show gets one (10/10 Everett exists only on nugs). KGLW tapes take 1–2 weeks.
 1. **archive.org search** (S): find tapes by collection + date (`BillyStrings`, `KingGizzardAndTheLizardWizard`) or `creator:` for other bands, before Relisten indexes them.
 2. **Gizz Tapes API** (S): `tapes.kglw.net/api/v1/shows/<date>.json`. More KGLW recordings than Relisten, labeled SBD/AUD, clean setlists. Prefer recordings whose ID contains the show date (one mislabeled item seen).
 3. **YouTube search** (M): YouTube Data API v3, 100 searches/day free. Search once at import time, cache the video, and review matches. This catches nugs-only shows and emerging artists. Needs a Google API key, kept on the server.
 4. **LivePhish** (M): Barry has a subscription. LivePhish runs on nugs' platform, so it likely works like the nugs adapter (unofficial, per-user login, via the relay). Needs its own investigation first; official Phish soundboards would become an alternate for Phish picks.
 5. **Bandcamp embed** (S–M): for emerging bands and KGLW official bootlegs. Play-only iframe (no auto-advance control).
-- Skipped: phish.in direct (same as Relisten), LivePhish (subscription, no API), SoundCloud/Mixcloud/Audiomack (no jam content, closed APIs), keyless YouTube scraping (against ToS).
+- Also done: nugs lookups page through big catalogs (Billy Strings has 1,000+ shows) to find a show by date.
+- Skipped: phish.in direct (same as Relisten), SoundCloud/Mixcloud/Audiomack (no jam content, closed APIs), keyless YouTube scraping (against ToS).
 - Reality: a show that exists only on nugs plays only for people with nugs, unless a YouTube copy exists.
 
 ### Phase 4: Setlist curates the week itself (replaces the email)
@@ -89,9 +98,9 @@ The friend's prompt moves into Setlist. Once a week the server researches the we
 - Spotify artist and album pages (search is songs-only today, capped at 10 results).
 - Cross-service search box.
 - Apple Music (needs an Apple Developer account, $99/yr).
-- LivePhish adapter.
 
 ## Open questions
+0. **Next build:** LivePhish (official Phish soundboards) or YouTube search (needs a free Google API key)?
 1. **Anthropic API key** for Phase 4 (pay-as-you-go at console.anthropic.com).
 2. **nugs on the server** for Phase 4: owner's phone fills in nugs sources, or store a nugs token server-side?
 3. **Prompt v2:** refine the friend's prompt once the in-app version runs (more bands? fewer picks? song-level highlights required).
