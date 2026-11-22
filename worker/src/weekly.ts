@@ -53,7 +53,7 @@ export const DEFAULT_PROMPT_V1 = `Today is {{today}}. You are curating a weekly 
 
 Do not repeat these shows from previous weeks: {{already}}`;
 
-export const DEFAULT_PROMPT = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
+export const DEFAULT_PROMPT_V2 = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
 
 BUDGET: at most 8 web searches and 8 page fetches. Fetch before you search.
 
@@ -78,13 +78,38 @@ STEP 4: Choose up to {{picks}} picks: at most {{maxPerBand}} per band{{bandLimit
 
 Do not repeat these shows from previous weeks: {{already}}`;
 
+export const DEFAULT_PROMPT = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
+
+BUDGET: at most 8 web searches and 8 page fetches. Fetch before you search.
+
+STEP 1: Fetch these listing pages first (they are fresher than search):
+- https://www.jambase.com/collection/reviews-recaps
+- https://liveforlivemusic.com/news/recap/
+- https://elgoose.net/reviews/ (fan reviews, including critical ones)
+- https://ryanstorm.substack.com/archive
+- https://phish.net/ (only if Phish or Trey Anastasio Band played in the window)
+From these, list the window's candidate shows. Fetch at most 3 individual recaps or reviews, choosing the most promising.
+
+STEP 2: Use searches only to (a) check watchlist acts with no coverage above: {{watchlist}}, and (b) find independent or critical takes on your top candidates (fan reviews, Substacks, phish.net reviews, kglw.net). Skip any act that did not play in the window. Never search for ticket pages.
+
+STEP 3: Score each candidate.
+Strong: 2+ independent sources praise the same show or jam; fan reviews say "best of tour"; a reviewer singles out a jam over about 18 minutes; jam-chart inclusion.
+Medium: notable segues or sandwiches, a bust-out after a gap of more than about 100 shows, a debut, a meaningful guest.
+Weak: one descriptive press recap, band PR, livestream promotion.
+Negative: "flat", "sloppy", "choppy", "lacked direction", "didn't go deep", "cover-heavy", a cut set. Downgrade the show, or use only its praised segment.
+Prefer consensus over hype. If a show is notable only for a rarity, say "curio" in the why.
+
+STEP 4: Aim for {{picks}} picks. Fill the list in this order: shows with strong signals first, then shows with medium signals, then solid shows backed by one good recap or review. Every pick still needs a named highlight song. Only come in under the target if the window was genuinely quiet; if you have fewer than 5 candidates, go back over the listing pages for anything you skipped before answering. Rules: at most {{maxPerBand}} per band{{bandLimits}}; at least 1 bluegrass/jamgrass pick when one qualifies; and up to {{newArtists}} emerging artist backed by two sources. For each pick name ONE highlight song (the specific jam the sources praise), explain why in one or two sentences crediting the sources, note any critical remarks as caveats, include the best review URL, and name the likely listen source (nugs/LivePhish, archive.org/Relisten, phish.in, tapes.kglw.net, YouTube, Bandcamp). Start the why with the strength in brackets: [consensus], [solid] or [curio]. Don't spend searches verifying listen links. Never include a show people panned.
+
+Do not repeat these shows from previous weeks: {{already}}`;
+
 const OUTPUT_RULES = `
 
 When you're done researching, reply with ONLY a JSON object inside <picks></picks> tags, no other text, in exactly this shape:
 <picks>{"picks":[{"kind":"show","artist":"Phish","date":"2026-10-06","venue":"Allianz Amphitheater, Richmond, VA","highlight":"Life Saving Gun","why":"One or two sentences on why it stands out, crediting sources.","caveats":"Any critical remarks, or null","links":["https://listen-link-if-known","https://best-review-link"]},{"kind":"new_artist","artist":"Band Name","date":null,"venue":null,"highlight":"Song title or null","why":"Why they fit.","caveats":null,"links":["https://youtube-or-bandcamp-link"]}]}</picks>
 Rules: date is YYYY-MM-DD or null; highlight is the exact song title as it appears on setlists, or null; put the most directly playable link first, then the review link.`;
 
-export const PROMPT_VERSION = 2;
+export const PROMPT_VERSION = 3;
 
 export const DEFAULT_CONFIG: WeeklyConfig = {
   enabled: true,
@@ -107,7 +132,7 @@ export const DEFAULT_CONFIG: WeeklyConfig = {
   maxPerBand: 2,
   bandLimits: { Goose: 1 },
   windowDays: 14,
-  newArtists: 1,
+  newArtists: 0,
   autoPublish: true,
   prompt: DEFAULT_PROMPT,
   promptVersion: PROMPT_VERSION,
@@ -119,7 +144,9 @@ export function upgradeConfig(saved: Partial<WeeklyConfig> & { bands?: string[];
   const cfg = { ...DEFAULT_CONFIG, ...saved } as WeeklyConfig & { bands?: string[]; showsPerBand?: number };
   if (!saved.promptVersion || saved.promptVersion < PROMPT_VERSION) {
     // Keep a prompt the owner wrote themselves; replace an untouched old default.
-    if (!saved.prompt || saved.prompt === DEFAULT_PROMPT_V1) cfg.prompt = DEFAULT_PROMPT;
+    if (!saved.prompt || saved.prompt === DEFAULT_PROMPT_V1 || saved.prompt === DEFAULT_PROMPT_V2) cfg.prompt = DEFAULT_PROMPT;
+    // Side B handles new artists now; don't double up on Mondays.
+    if ((saved.promptVersion ?? 0) < 3) cfg.newArtists = 0;
     cfg.promptVersion = PROMPT_VERSION;
   }
   delete cfg.bands;
@@ -138,7 +165,7 @@ function nyOffsetMinutes(at: Date): number {
 }
 
 /** The next time it's `day` at `hour`:00 in New York, after `from`. */
-export function nextRunAt(cfg: WeeklyConfig, from = Date.now()): number {
+export function nextRunAt(cfg: { day: number; hour: number }, from = Date.now()): number {
   for (let d = 0; d <= 8; d++) {
     const probe = new Date(from + d * 864e5);
     const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' })
@@ -190,6 +217,8 @@ export function buildPrompt(cfg: WeeklyConfig, already: string[]) {
       .replaceAll('{{picks}}', String(cfg.picks))
       .replaceAll('{{maxPerBand}}', String(cfg.maxPerBand))
       .replaceAll('{{bandLimits}}', limits ? ` (${limits})` : '')
+      // With new artists handled by Side B, drop that clause entirely.
+      .replace(/;?\s*and up to \{\{newArtists\}\} emerging artists? backed by two sources/, cfg.newArtists ? '$&' : '')
       .replaceAll('{{newArtists}}', String(cfg.newArtists))
       // v1 placeholders, in case an owner kept an old custom prompt
       .replaceAll('{{bands}}', cfg.watchlist.join(', '))
@@ -271,21 +300,19 @@ export function enforce(picks: WeeklyPick[], cfg: WeeklyConfig, now = Date.now()
   return out;
 }
 
-export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[], baseUrl = 'https://api.anthropic.com'): Promise<CurateResult> {
-  const messages: { role: 'user' | 'assistant'; content: unknown }[] = [{ role: 'user', content: buildPrompt(cfg, already) }];
+/** One research call: Claude + web search/fetch, continuing "pause_turn" until done. */
+async function callClaude(apiKey: string, model: string, prompt: string, baseUrl: string) {
+  const messages: { role: 'user' | 'assistant'; content: unknown }[] = [{ role: 'user', content: prompt }];
   const total = { searches: 0, inputTokens: 0, outputTokens: 0 };
   let text = '';
-
   let tier = 0;
-
-  // Long research turns come back as "pause_turn": send the paused message back unchanged to continue.
   for (let round = 0; round < 6; round++) {
     const send = () =>
       fetch(`${baseUrl}/v1/messages`, {
         method: 'POST',
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
         body: JSON.stringify({
-          model: cfg.model,
+          model,
           max_tokens: 8000,
           messages,
           tools: [
@@ -312,21 +339,28 @@ export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[
     total.inputTokens += j.usage?.input_tokens ?? 0;
     total.outputTokens += j.usage?.output_tokens ?? 0;
     text = (j.content ?? [])
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text ?? '')
+      .filter((x) => x.type === 'text')
+      .map((x) => x.text ?? '')
       .join('');
     if (j.stop_reason !== 'pause_turn') break;
     messages.push({ role: 'assistant', content: j.content });
   }
+  return { text, tool: TOOL_TIERS[tier].search, ...total };
+}
 
-  const m = /<picks>([\s\S]*?)<\/picks>/.exec(text) ?? /(\{[\s\S]*"picks"[\s\S]*\})/.exec(text);
+function extractJson(text: string): Record<string, unknown> {
+  const m = /<picks>([\s\S]*?)<\/picks>/.exec(text) ?? /(\{[\s\S]*"(?:picks|bands)"[\s\S]*\})/.exec(text);
   if (!m) throw new Error('Claude finished without a picks list');
-  let parsed: { picks?: unknown[] };
   try {
-    parsed = JSON.parse(m[1]);
+    return JSON.parse(m[1]);
   } catch {
     throw new Error('Claude’s picks list wasn’t valid JSON');
   }
+}
+
+export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[], baseUrl = 'https://api.anthropic.com'): Promise<CurateResult> {
+  const { text, tool, ...total } = await callClaude(apiKey, cfg.model, buildPrompt(cfg, already), baseUrl);
+  const parsed = extractJson(text) as { picks?: unknown[] };
   const picks: WeeklyPick[] = (parsed.picks ?? [])
     .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
     .map((p) => ({
@@ -342,5 +376,104 @@ export async function curate(apiKey: string, cfg: WeeklyConfig, already: string[
     .filter((p) => p.artist);
   const dropped: Dropped[] = [];
   const kept = enforce(picks, cfg, Date.now(), dropped);
-  return { picks: kept, dropped, raw: text.slice(0, 20000), tool: TOOL_TIERS[tier].search, ...total };
+  return { picks: kept, dropped, raw: text.slice(0, 20000), tool, ...total };
+}
+
+/* ---- Side B: New to Your Radar ---------------------------------------- */
+
+export interface DiscoveryConfig {
+  enabled: boolean;
+  day: number;
+  hour: number;
+  bands: number;
+  songsPerBand: number;
+  autoPublish: boolean;
+  /** Placeholders: {{today}}, {{bands}}, {{songs}}, {{scene}}, {{already}}. */
+  prompt: string;
+  model: string;
+}
+
+export const DEFAULT_DISCOVERY_PROMPT = `Today is {{today}}. Recommend {{bands}} new or emerging artists to a small group of friends who love jam bands and bluegrass (fans of {{scene}}).
+
+Territory: jamgrass and progressive bluegrass, psychedelic and improvisational rock, jam-revival acts in the Grateful Dead / Allman Brothers lineage, and electronic or funk acts with real improvisation. "New" means not yet widely known to this crowd: no arena tours yet; ideally a debut or second record, a buzzy recent tour, or a festival-circuit breakout in roughly the last 12 months.
+
+Sources: JamBase, Live For Live Music, Relix, Glide, Grateful Web, NPR Music, Bluegrass Today, No Depression, Bandcamp Daily, recent festival lineups (late-night sets, side stages). Prefer artists that more than one source is excited about. Be very selective: one great artist beats two decent ones.
+
+For each artist, pick {{songs}} songs that best show what they do, preferring LIVE versions (a full recent show on nugs.net or archive.org, or YouTube live sessions such as Relix, Audiotree, Tiny Desk, Paste, or fan-shot sets). Give a direct link for each song when you find one, plus the best article about the artist. Say who they sound like.
+
+BUDGET: at most 8 web searches and 6 page fetches. Don't spend searches re-checking links.
+
+Do not recommend these artists, already featured: {{already}}`;
+
+const DISCOVERY_RULES = `
+
+When you're done, reply with ONLY a JSON object inside <picks></picks> tags, no other text, in exactly this shape:
+<picks>{"bands":[{"artist":"Band Name","why":"Two sentences on why this crowd will dig them.","soundsLike":"Artist A meets Artist B","article":"https://best-article","songs":[{"title":"Song title","why":"One line: what to listen for.","links":["https://direct-listen-link"]}]}]}</picks>
+Rules: song titles exactly as the band titles them; put the most directly playable link first; up to {{songs}} songs per artist.`;
+
+export const DEFAULT_DISCOVERY: DiscoveryConfig = {
+  enabled: true,
+  day: 4,
+  hour: 8,
+  bands: 2,
+  songsPerBand: 3,
+  autoPublish: true,
+  prompt: DEFAULT_DISCOVERY_PROMPT,
+  model: 'claude-sonnet-5-5',
+};
+
+export function buildDiscoveryPrompt(cfg: DiscoveryConfig, scene: string[], already: string[]) {
+  return (cfg.prompt + DISCOVERY_RULES)
+    .replaceAll('{{today}}', nyToday())
+    .replaceAll('{{bands}}', cfg.bands === 1 ? '1' : `1–${cfg.bands}`)
+    .replaceAll('{{songs}}', String(cfg.songsPerBand))
+    .replaceAll('{{scene}}', scene.slice(0, 8).join(', '))
+    .replaceAll('{{already}}', already.length ? already.join(', ') : '(none yet)');
+}
+
+/** Each song becomes a pick (kind "new_artist"); the band's blurb rides on its first song. */
+export async function discover(
+  apiKey: string,
+  cfg: DiscoveryConfig,
+  scene: string[],
+  already: string[],
+  baseUrl = 'https://api.anthropic.com',
+): Promise<CurateResult> {
+  const { text, tool, ...total } = await callClaude(apiKey, cfg.model, buildDiscoveryPrompt(cfg, scene, already), baseUrl);
+  const parsed = extractJson(text) as { bands?: Record<string, unknown>[] };
+  const seen = new Set(already.map((a) => bandKey(a)));
+  const picks: WeeklyPick[] = [];
+  const dropped: Dropped[] = [];
+  for (const b of (parsed.bands ?? []).slice(0, cfg.bands + 1)) {
+    const artist = String(b.artist ?? '').slice(0, 120);
+    if (!artist) continue;
+    if (seen.has(bandKey(artist))) {
+      dropped.push({ artist, date: null, highlight: null, reason: 'already featured on Side B' });
+      continue;
+    }
+    if (picks.length && new Set(picks.map((p) => bandKey(p.artist))).size >= cfg.bands) {
+      dropped.push({ artist, date: null, highlight: null, reason: `over the ${cfg.bands}-band limit` });
+      continue;
+    }
+    seen.add(bandKey(artist));
+    const blurb = [String(b.why ?? ''), b.soundsLike ? `Sounds like ${String(b.soundsLike)}.` : ''].filter(Boolean).join(' ');
+    const songs = (Array.isArray(b.songs) ? b.songs : []).slice(0, cfg.songsPerBand) as Record<string, unknown>[];
+    songs.forEach((sng, i) => {
+      const title = String(sng.title ?? '').slice(0, 120);
+      if (!title) return;
+      const links = (Array.isArray(sng.links) ? sng.links : []).map(String).filter((l) => /^https?:\/\//.test(l)).slice(0, 4);
+      if (i === 0 && typeof b.article === 'string' && /^https?:\/\//.test(b.article)) links.push(b.article);
+      picks.push({
+        kind: 'new_artist',
+        artist,
+        date: null,
+        venue: null,
+        highlight: title,
+        why: (i === 0 ? `${blurb} ` : '') + String(sng.why ?? '').slice(0, 300),
+        links,
+        caveats: null,
+      });
+    });
+  }
+  return { picks, dropped, raw: text.slice(0, 20000), tool, ...total };
 }

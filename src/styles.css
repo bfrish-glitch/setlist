@@ -288,3 +288,9 @@ body.yt-on main { padding-bottom: calc(var(--tabs-h) + 96px + min(calc(100vw - 2
 .comment-form input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 10px 14px; outline: none; }
 .comment-form input:focus { border-color: var(--accent); }
 .raw { white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); font-size: 11px; background: var(--bg); border-radius: 10px; padding: 10px; max-height: 320px; overflow: auto; color: var(--muted); }
+/* Side B */
+.side-b { border-top: 1px dashed var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.side-b-head { padding: 30px 20px 8px; display: flex; flex-direction: column; gap: 4px; }
+.side-b-label { font-family: var(--font-marker); font-size: 16px; color: var(--teal); }
+.side-b-title { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 32px; line-height: 1.05; color: var(--lavender); }
+.play-side.alt { background: transparent; color: var(--lavender); box-shadow: inset 0 0 0 2px var(--lavender); }

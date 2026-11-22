@@ -7,8 +7,10 @@ import {
   publishWeek,
   resolveWeeklyPick,
   songsFor,
-  weekName,
+  runName,
   weeklyApi,
+  type DiscoveryConfig,
+  type RunKind,
   type WeeklyConfig,
   type WeeklyInfo,
   type WeeklyRun,
@@ -87,9 +89,10 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
   if (!info) return null;
 
   const cfg = info.config;
-  const last = info.runs[0];
+  const last = info.runs.find((r) => (r.kind ?? 'weekly') === 'weekly');
+  const lastB = info.runs.find((r) => r.kind === 'discovery');
 
-  const save = async (patch: Partial<WeeklyConfig> & { resetPrompt?: boolean }) => {
+  const save = async (patch: (Partial<WeeklyConfig> | Partial<DiscoveryConfig>) & { resetPrompt?: boolean; kind?: RunKind }) => {
     try {
       setInfo(await weeklyApi.save(patch));
       toast('Saved');
@@ -98,11 +101,11 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
     }
   };
 
-  const runNow = async () => {
+  const runNow = async (kind: RunKind = 'weekly') => {
     try {
-      setInfo(await weeklyApi.run());
+      setInfo(await weeklyApi.run(kind));
       setWaitingSince(Date.now());
-      toast('Researching this week’s picks. Takes a few minutes.');
+      toast(kind === 'discovery' ? 'Looking for new bands. Takes a few minutes.' : 'Researching this week’s picks. Takes a few minutes.');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Couldn’t start a run');
     }
@@ -112,7 +115,7 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
     <div className="group-card">
       <div className="group-head">
         <div>
-          <div className="title">Weekly picks</div>
+          <div className="title">Side A · Weekly jams</div>
           <div className="sub wrap">
             {cfg.enabled
               ? `Every ${DAYS[cfg.day]} at ${cfg.hour % 12 || 12}${cfg.hour < 12 ? 'am' : 'pm'} ET · next ${when(info.nextRun)}`
@@ -121,7 +124,7 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
           </div>
         </div>
         {owner && (
-          <button className="primary small" disabled={!info.hasKey || running || waiting} onClick={runNow}>
+          <button className="primary small" disabled={!info.hasKey || running || waiting} onClick={() => runNow('weekly')}>
             {running || waiting ? 'Running…' : 'Run now'}
           </button>
         )}
@@ -260,6 +263,16 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
         </div>
       )}
 
+      <SideB
+        info={info}
+        owner={owner}
+        busy={!!running || waiting}
+        last={lastB}
+        onRun={() => runNow('discovery')}
+        onSave={(patch) => save({ ...patch, kind: 'discovery' } as Partial<WeeklyConfig>)}
+        onReview={(r) => setReview(r)}
+      />
+
       {review && (
         <ReviewSheet
           run={review}
@@ -372,7 +385,7 @@ function ReviewSheet({ run, onClose }: { run: WeeklyRun; onClose: (msg?: string)
   return (
     <div className="sheet-backdrop" onClick={() => !busy && onClose()}>
       <div className="sheet review-sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-title">{weekName(run.finishedAt ?? run.startedAt)}</div>
+        <div className="sheet-title">{runName(run)}</div>
         {!rows && <div className="empty">Finding every pick…</div>}
         {rows?.map((r, i) => (
           <div key={i}>
@@ -410,6 +423,97 @@ function ReviewSheet({ run, onClose }: { run: WeeklyRun; onClose: (msg?: string)
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Side B: New to Your Radar. Its own schedule, settings and prompt. */
+function SideB(props: {
+  info: WeeklyInfo;
+  owner: boolean;
+  busy: boolean;
+  last?: WeeklyRun;
+  onRun: () => void;
+  onSave: (patch: Partial<DiscoveryConfig> & { resetPrompt?: boolean }) => Promise<void>;
+  onReview: (r: WeeklyRun) => void;
+}) {
+  const { info, owner, last } = props;
+  const d = info.discovery;
+  const [draft, setDraft] = useState<DiscoveryConfig | null>(null);
+  if (!d) return null;
+  return (
+    <div className="side-b">
+      <div className="group-head">
+        <div>
+          <div className="title">Side B · New to Your Radar</div>
+          <div className="sub wrap">
+            {d.enabled
+              ? `Every ${DAYS[d.day]} at ${d.hour % 12 || 12}${d.hour < 12 ? 'am' : 'pm'} ET · next ${when(info.nextDiscovery)}`
+              : 'Paused'}
+            {` · ${d.bands === 1 ? '1 new band' : `1–${d.bands} new bands`}, ${d.songsPerBand} songs each`}
+          </div>
+        </div>
+        {owner && (
+          <button className="primary small" disabled={!info.hasKey || props.busy} onClick={props.onRun}>
+            {props.busy ? 'Running…' : 'Run now'}
+          </button>
+        )}
+      </div>
+      {last && <RunSummary run={last} owner={owner} model={d.model} onReview={() => props.onReview(last)} />}
+      {owner && !draft && (
+        <div className="btns">
+          <button onClick={() => setDraft({ ...d })}>Edit Side B</button>
+          <button onClick={() => void props.onSave({ enabled: !d.enabled })}>{d.enabled ? 'Pause' : 'Resume'}</button>
+        </div>
+      )}
+      {owner && draft && (
+        <div className="weekly-form">
+          <div className="row-fields">
+            <label>
+              New bands per week
+              <select value={draft.bands} onChange={(e) => setDraft({ ...draft, bands: +e.target.value })}>
+                {[1, 2, 3].map((n) => <option key={n}>{n}</option>)}
+              </select>
+            </label>
+            <label>
+              Songs per band
+              <select value={draft.songsPerBand} onChange={(e) => setDraft({ ...draft, songsPerBand: +e.target.value })}>
+                {[1, 2, 3, 4, 5].map((n) => <option key={n}>{n}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="row-fields">
+            <label>
+              Day
+              <select value={draft.day} onChange={(e) => setDraft({ ...draft, day: +e.target.value })}>
+                {DAYS.map((x, i) => <option key={x} value={i}>{x}</option>)}
+              </select>
+            </label>
+            <label>
+              Time (ET)
+              <select value={draft.hour} onChange={(e) => setDraft({ ...draft, hour: +e.target.value })}>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <option key={h} value={h}>{`${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={draft.autoPublish} onChange={(e) => setDraft({ ...draft, autoPublish: e.target.checked })} />
+            Publish automatically
+          </label>
+          <label>
+            Discovery prompt
+            <textarea rows={10} value={draft.prompt ?? ''} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} />
+          </label>
+          <p className="fine">Placeholders: {'{{today}}'}, {'{{bands}}'}, {'{{songs}}'}, {'{{scene}}'} (your watchlist), {'{{already}}'} (bands already featured).</p>
+          <div className="btns">
+            <button className="primary" onClick={async () => { await props.onSave(draft); setDraft(null); }}>Save</button>
+            <button onClick={() => setDraft(null)}>Cancel</button>
+            <button className="danger" onClick={async () => { if (confirm('Put the original Side B prompt back?')) { await props.onSave({ resetPrompt: true }); setDraft(null); } }}>Reset prompt</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

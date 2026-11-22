@@ -1,5 +1,16 @@
 import { DurableObject } from 'cloudflare:workers';
-import { DEFAULT_CONFIG, curate, nextRunAt, upgradeConfig, type WeeklyConfig } from './weekly';
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_DISCOVERY,
+  curate,
+  discover,
+  nextRunAt,
+  upgradeConfig,
+  type DiscoveryConfig,
+  type WeeklyConfig,
+} from './weekly';
+
+type RunKind = 'weekly' | 'discovery';
 
 export interface GroupEnv {
   ANTHROPIC_API_KEY?: string;
@@ -97,6 +108,7 @@ export class Group extends DurableObject<GroupEnv> {
     this.migrated = true;
     const cols = this.sql.exec<{ name: string }>('PRAGMA table_info(runs)').toArray().map((c) => c.name);
     if (!cols.includes('dropped')) this.sql.exec('ALTER TABLE runs ADD COLUMN dropped TEXT');
+    if (!cols.includes('kind')) this.sql.exec("ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'weekly'");
   }
 
   async fetch(req: Request): Promise<Response> {
@@ -148,7 +160,7 @@ export class Group extends DurableObject<GroupEnv> {
     }
     if (method === 'POST' && path === '/weekly/run') {
       if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can run the weekly picks');
-      return this.requestRun(me);
+      return this.requestRun(me, body.kind === 'discovery' ? 'discovery' : 'weekly');
     }
     if (method === 'GET' && path === '/weekly/pending') return this.pendingRun(me);
     if (method === 'POST' && path === '/weekly/claim') return this.claimRun(me, String(body.id));
@@ -469,7 +481,7 @@ export class Group extends DurableObject<GroupEnv> {
       .map((r) => this.playlist(r.id, names));
   }
 
-  /* ---- weekly picks ------------------------------------------------- */
+  /* ---- weekly picks: Side A (jams, Mondays) + Side B (new bands, Thursdays) ---- */
 
   private config(): WeeklyConfig {
     const raw = this.getMeta('weekly_config');
@@ -481,17 +493,42 @@ export class Group extends DurableObject<GroupEnv> {
     }
   }
 
-  /** Make sure the weekly alarm is set (or cleared) to match the config. */
+  private discoveryConfig(): DiscoveryConfig {
+    const raw = this.getMeta('discovery_config');
+    if (!raw) return DEFAULT_DISCOVERY;
+    try {
+      return { ...DEFAULT_DISCOVERY, ...JSON.parse(raw) };
+    } catch {
+      return DEFAULT_DISCOVERY;
+    }
+  }
+
+  private cfgFor(kind: RunKind) {
+    return kind === 'discovery' ? this.discoveryConfig() : this.config();
+  }
+
+  private nextFor(kind: RunKind, from = Date.now()) {
+    const c = this.cfgFor(kind);
+    return c.enabled ? nextRunAt(c, from) : null;
+  }
+
+  private requested(): RunKind[] {
+    return (this.getMeta('run_requested') ?? '').split(',').filter((k): k is RunKind => k === 'weekly' || k === 'discovery');
+  }
+
+  /** One alarm drives both schedules and any "Run now": set it to whichever comes first. */
   private async schedule() {
-    const cfg = this.config();
     if (this.runningRun()) return; // the alarm handler reschedules when it finishes
-    if (!cfg.enabled) {
-      if (!this.getMeta('run_requested')) await this.ctx.storage.deleteAlarm();
+    const times = [this.requested().length ? Date.now() + 500 : null, this.nextFor('weekly'), this.nextFor('discovery')].filter(
+      (t): t is number => t != null,
+    );
+    if (!times.length) {
+      await this.ctx.storage.deleteAlarm();
       return;
     }
-    const want = nextRunAt(cfg);
+    const want = Math.min(...times);
     const have = await this.ctx.storage.getAlarm();
-    if (have == null || (!this.getMeta('run_requested') && Math.abs(have - want) > 60000)) await this.ctx.storage.setAlarm(want);
+    if (have == null || Math.abs(have - want) > 60000) await this.ctx.storage.setAlarm(want);
   }
 
   private runningRun() {
@@ -504,6 +541,7 @@ export class Group extends DurableObject<GroupEnv> {
   private runRow(r: Record<string, any>, full = false) {
     return {
       id: r.id,
+      kind: (r.kind ?? 'weekly') as RunKind,
       trigger: r.trigger,
       status: r.status,
       startedAt: r.started_at,
@@ -523,85 +561,119 @@ export class Group extends DurableObject<GroupEnv> {
   private async weeklyInfo(me: Member) {
     await this.schedule();
     const cfg = this.config();
+    const disc = this.discoveryConfig();
+    const owner = me.role === 'owner';
     const runs = this.sql
-      .exec<Record<string, any>>('SELECT * FROM runs ORDER BY started_at DESC LIMIT 6')
+      .exec<Record<string, any>>('SELECT * FROM runs ORDER BY started_at DESC LIMIT 10')
       .toArray()
-      .map((r) => this.runRow(r, me.role === 'owner'));
+      .map((r) => this.runRow(r, owner));
     return {
-      config: me.role === 'owner' ? cfg : { ...cfg, prompt: undefined },
-      nextRun: cfg.enabled ? nextRunAt(cfg) : null,
+      config: owner ? cfg : { ...cfg, prompt: undefined },
+      discovery: owner ? disc : { ...disc, prompt: undefined },
+      nextRun: this.nextFor('weekly'),
+      nextDiscovery: this.nextFor('discovery'),
       hasKey: !!this.env.ANTHROPIC_API_KEY,
       runs,
     };
   }
 
   private async saveConfig(body: Record<string, unknown>, me: Member) {
-    const cur = this.config();
     const num = (v: unknown, lo: number, hi: number, d: number) => {
       const n = Number(v);
       return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d;
     };
-    const list = (v: unknown, d: string[]) =>
-      Array.isArray(v) ? (v as unknown[]).map((b) => String(b).trim()).filter(Boolean).slice(0, 30) : d;
-    const limits = (v: unknown, d: Record<string, number>) => {
-      if (!v || typeof v !== 'object') return d;
-      const out: Record<string, number> = {};
-      for (const [k, n] of Object.entries(v as Record<string, unknown>).slice(0, 20)) {
-        const name = String(k).trim().slice(0, 60);
-        if (name) out[name] = num(n, 0, 5, 1);
-      }
-      return out;
-    };
-    const next: WeeklyConfig = {
-      ...cur,
-      enabled: body.enabled === undefined ? cur.enabled : !!body.enabled,
-      day: num(body.day ?? cur.day, 0, 6, cur.day),
-      hour: num(body.hour ?? cur.hour, 0, 23, cur.hour),
-      watchlist: list(body.watchlist, cur.watchlist),
-      picks: num(body.picks ?? cur.picks, 3, 15, cur.picks),
-      maxPerBand: num(body.maxPerBand ?? cur.maxPerBand, 1, 3, cur.maxPerBand),
-      bandLimits: limits(body.bandLimits, cur.bandLimits),
-      windowDays: num(body.windowDays ?? cur.windowDays, 3, 60, cur.windowDays),
-      newArtists: num(body.newArtists ?? cur.newArtists, 0, 3, cur.newArtists),
-      autoPublish: body.autoPublish === undefined ? cur.autoPublish : !!body.autoPublish,
-      prompt: typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.slice(0, 8000) : cur.prompt,
-      model: typeof body.model === 'string' && /^claude-[\w.-]+$/.test(body.model) ? body.model : cur.model,
-    };
-    if (body.resetPrompt) next.prompt = DEFAULT_CONFIG.prompt;
-    this.setMeta('weekly_config', JSON.stringify(next));
+    const prompt = (cur: string) => (typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.slice(0, 8000) : cur);
+    const model = (cur: string) => (typeof body.model === 'string' && /^claude-[\w.-]+$/.test(body.model) ? body.model : cur);
+
+    if (body.kind === 'discovery') {
+      const cur = this.discoveryConfig();
+      const next: DiscoveryConfig = {
+        ...cur,
+        enabled: body.enabled === undefined ? cur.enabled : !!body.enabled,
+        day: num(body.day ?? cur.day, 0, 6, cur.day),
+        hour: num(body.hour ?? cur.hour, 0, 23, cur.hour),
+        bands: num(body.bands ?? cur.bands, 1, 3, cur.bands),
+        songsPerBand: num(body.songsPerBand ?? cur.songsPerBand, 1, 5, cur.songsPerBand),
+        autoPublish: body.autoPublish === undefined ? cur.autoPublish : !!body.autoPublish,
+        prompt: body.resetPrompt ? DEFAULT_DISCOVERY.prompt : prompt(cur.prompt),
+        model: model(cur.model),
+      };
+      this.setMeta('discovery_config', JSON.stringify(next));
+    } else {
+      const cur = this.config();
+      const list = (v: unknown, d: string[]) =>
+        Array.isArray(v) ? (v as unknown[]).map((b) => String(b).trim()).filter(Boolean).slice(0, 30) : d;
+      const limits = (v: unknown, d: Record<string, number>) => {
+        if (!v || typeof v !== 'object') return d;
+        const out: Record<string, number> = {};
+        for (const [k, n] of Object.entries(v as Record<string, unknown>).slice(0, 20)) {
+          const name = String(k).trim().slice(0, 60);
+          if (name) out[name] = num(n, 0, 5, 1);
+        }
+        return out;
+      };
+      const next: WeeklyConfig = {
+        ...cur,
+        enabled: body.enabled === undefined ? cur.enabled : !!body.enabled,
+        day: num(body.day ?? cur.day, 0, 6, cur.day),
+        hour: num(body.hour ?? cur.hour, 0, 23, cur.hour),
+        watchlist: list(body.watchlist, cur.watchlist),
+        picks: num(body.picks ?? cur.picks, 3, 15, cur.picks),
+        maxPerBand: num(body.maxPerBand ?? cur.maxPerBand, 1, 3, cur.maxPerBand),
+        bandLimits: limits(body.bandLimits, cur.bandLimits),
+        windowDays: num(body.windowDays ?? cur.windowDays, 3, 60, cur.windowDays),
+        newArtists: num(body.newArtists ?? cur.newArtists, 0, 3, cur.newArtists),
+        autoPublish: body.autoPublish === undefined ? cur.autoPublish : !!body.autoPublish,
+        prompt: body.resetPrompt ? DEFAULT_CONFIG.prompt : prompt(cur.prompt),
+        model: model(cur.model),
+      };
+      this.setMeta('weekly_config', JSON.stringify(next));
+    }
     await this.ctx.storage.deleteAlarm();
     await this.schedule();
     return this.weeklyInfo(me);
   }
 
-  private async requestRun(me: Member) {
+  private async requestRun(me: Member, kind: RunKind) {
     if (!this.env.ANTHROPIC_API_KEY) throw new ApiError(400, 'No Anthropic API key on the server yet');
     if (this.runningRun()) throw new ApiError(409, 'A run is already going. Give it a few minutes.');
-    this.setMeta('run_requested', 'manual');
+    const req = new Set(this.requested());
+    req.add(kind);
+    this.setMeta('run_requested', [...req].join(','));
     await this.ctx.storage.setAlarm(Date.now() + 500);
     return this.weeklyInfo(me);
   }
 
-  /** The alarm: either the weekly schedule or a "Run now". */
+  /** The alarm: runs whatever is due (scheduled or "Run now"), then sets the next alarm. */
   async alarm() {
     this.migrate();
-    const trigger = this.getMeta('run_requested') ? 'manual' : 'weekly';
+    const manual = this.requested();
     this.sql.exec("DELETE FROM meta WHERE key = 'run_requested'");
-    const cfg = this.config();
-    if ((trigger === 'weekly' && !cfg.enabled) || !this.env.ANTHROPIC_API_KEY || this.runningRun()) {
-      await this.schedule();
-      return;
+    const due = new Set<RunKind>(manual);
+    // A scheduled time that came due in the last 10 minutes.
+    for (const k of ['weekly', 'discovery'] as RunKind[]) {
+      const t = this.nextFor(k, Date.now() - 10 * 60000);
+      if (t != null && t <= Date.now() + 60000) due.add(k);
     }
+    if (this.env.ANTHROPIC_API_KEY && !this.runningRun()) {
+      for (const k of due) await this.runOne(k, manual.includes(k) ? 'manual' : 'weekly');
+    }
+    await this.schedule();
+  }
+
+  private async runOne(kind: RunKind, trigger: string) {
     const id = rid(8);
-    this.sql.exec("INSERT INTO runs (id, trigger, status, started_at) VALUES (?, ?, 'running', ?)", id, trigger, now());
+    this.sql.exec("INSERT INTO runs (id, kind, trigger, status, started_at) VALUES (?, ?, ?, 'running', ?)", id, kind, trigger, now());
     try {
-      // Shows already picked in earlier weeks, so the list doesn't repeat itself.
-      const already = new Set<string>();
-      for (const r of this.sql.exec<{ picks: string }>("SELECT picks FROM runs WHERE picks IS NOT NULL ORDER BY started_at DESC LIMIT 8")) {
-        for (const p of JSON.parse(r.picks) as { artist: string; date: string | null }[])
-          if (p.date) already.add(`${p.artist} ${p.date}`);
-      }
-      const res = await curate(this.env.ANTHROPIC_API_KEY, cfg, [...already], this.env.ANTHROPIC_BASE_URL || undefined);
+      const past = this.sql
+        .exec<{ picks: string }>('SELECT picks FROM runs WHERE picks IS NOT NULL AND kind = ? ORDER BY started_at DESC LIMIT 12', kind)
+        .toArray()
+        .flatMap((r) => JSON.parse(r.picks) as { artist: string; date: string | null }[]);
+      const base = this.env.ANTHROPIC_BASE_URL || undefined;
+      const res =
+        kind === 'discovery'
+          ? await discover(this.env.ANTHROPIC_API_KEY!, this.discoveryConfig(), this.config().watchlist, [...new Set(past.map((p) => p.artist))], base)
+          : await curate(this.env.ANTHROPIC_API_KEY!, this.config(), [...new Set(past.filter((p) => p.date).map((p) => `${p.artist} ${p.date}`))], base);
       this.sql.exec(
         "UPDATE runs SET status = 'ready', finished_at = ?, picks = ?, dropped = ?, raw = ?, searches = ?, input_tokens = ?, output_tokens = ? WHERE id = ?",
         now(),
@@ -621,25 +693,29 @@ export class Group extends DurableObject<GroupEnv> {
         id,
       );
     }
-    await this.schedule();
   }
 
-  /** The newest finished run that hasn't become a playlist yet. */
+  /** Finished runs that haven't become playlists yet: the newest per side. */
   private pendingRun(me: Member) {
-    const r = this.sql
-      .exec<Record<string, any>>("SELECT * FROM runs WHERE status = 'ready' ORDER BY started_at DESC LIMIT 1")
-      .toArray()[0];
-    if (!r) return { run: null };
-    const cfg = this.config();
-    return { run: this.runRow(r), autoPublish: cfg.autoPublish, canPublish: cfg.autoPublish || me.role === 'owner' };
+    const runs = (['weekly', 'discovery'] as RunKind[])
+      .map((k) => this.sql.exec<Record<string, any>>("SELECT * FROM runs WHERE status = 'ready' AND kind = ? ORDER BY started_at DESC LIMIT 1", k).toArray()[0])
+      .filter(Boolean)
+      .map((r) => ({ ...this.runRow(r), autoPublish: this.cfgFor((r.kind ?? 'weekly') as RunKind).autoPublish }));
+    const first = runs[0];
+    return {
+      runs,
+      // older clients read these two
+      run: first ?? null,
+      autoPublish: first?.autoPublish,
+      isOwner: me.role === 'owner',
+    };
   }
 
   /** One phone at a time turns a run into the playlist. A claim expires after 10 minutes. */
   private claimRun(me: Member, id: string) {
-    const cfg = this.config();
-    if (!cfg.autoPublish && me.role !== 'owner') return { ok: false };
     const r = this.sql.exec<Record<string, any>>("SELECT * FROM runs WHERE id = ? AND status = 'ready'", id).toArray()[0];
     if (!r) return { ok: false };
+    if (!this.cfgFor((r.kind ?? 'weekly') as RunKind).autoPublish && me.role !== 'owner') return { ok: false };
     if (r.claimed_by && r.claimed_by !== me.id && now() - Number(r.claimed_at) < 10 * 60000) return { ok: false };
     this.sql.exec('UPDATE runs SET claimed_by = ?, claimed_at = ? WHERE id = ?', me.id, now(), id);
     return { ok: true };

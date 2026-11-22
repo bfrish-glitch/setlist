@@ -38,8 +38,23 @@ export interface WeeklyConfig {
   model: string;
 }
 
+export type RunKind = 'weekly' | 'discovery';
+
+export interface DiscoveryConfig {
+  enabled: boolean;
+  day: number;
+  hour: number;
+  bands: number;
+  songsPerBand: number;
+  autoPublish: boolean;
+  prompt?: string;
+  model: string;
+}
+
 export interface WeeklyRun {
   id: string;
+  kind?: RunKind;
+  autoPublish?: boolean;
   trigger: 'weekly' | 'manual';
   status: 'running' | 'ready' | 'error' | 'published';
   startedAt: number;
@@ -57,16 +72,19 @@ export interface WeeklyRun {
 
 export interface WeeklyInfo {
   config: WeeklyConfig;
+  discovery: DiscoveryConfig;
   nextRun: number | null;
+  nextDiscovery: number | null;
   hasKey: boolean;
   runs: WeeklyRun[];
 }
 
 export const weeklyApi = {
   info: () => api<WeeklyInfo>('/weekly'),
-  save: (cfg: Partial<WeeklyConfig> & { resetPrompt?: boolean }) => api<WeeklyInfo>('/weekly/config', cfg),
-  run: () => api<WeeklyInfo>('/weekly/run', {}),
-  pending: () => api<{ run: WeeklyRun | null; autoPublish?: boolean; canPublish?: boolean }>('/weekly/pending'),
+  save: (cfg: (Partial<WeeklyConfig> | Partial<DiscoveryConfig>) & { resetPrompt?: boolean; kind?: RunKind }) =>
+    api<WeeklyInfo>('/weekly/config', cfg),
+  run: (kind: RunKind = 'weekly') => api<WeeklyInfo>('/weekly/run', { kind }),
+  pending: () => api<{ runs?: WeeklyRun[]; run: WeeklyRun | null; autoPublish?: boolean; isOwner?: boolean }>('/weekly/pending'),
   claim: (id: string) => api<{ ok: boolean }>('/weekly/claim', { id }),
   publish: (id: string, playlistId: string, missed: string[]) => api<{ ok: boolean }>('/weekly/publish', { id, playlistId, missed }),
 };
@@ -139,17 +157,19 @@ export function songsFor(p: Pick): Track[] {
   return t ? [{ ...t, note: p.note ?? t.note }] : [];
 }
 
-export const weekName = (at: number) =>
-  `Week of ${new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })}`;
+const shortDate = (at: number) => new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+export const weekName = (at: number) => `Week of ${shortDate(at)}`;
+export const runName = (run: WeeklyRun) =>
+  run.kind === 'discovery' ? `New to Your Radar · ${shortDate(run.finishedAt ?? run.startedAt)}` : weekName(run.finishedAt ?? run.startedAt);
 
 /** Create the weekly playlist and mark the run done. */
 export async function publishWeek(run: WeeklyRun, tracks: Track[], missed: string[]) {
-  const name = weekName(run.finishedAt ?? run.startedAt);
+  const name = runName(run);
   const payload = tracks.map(({ key: _k, addedBy: _a, social: _s, ...t }) => t);
   const p = await api<{ id: string; name: string }>('/playlists', {
     name,
     tracks: payload,
-    kind: 'weekly',
+    kind: run.kind === 'discovery' ? 'discovery' : 'weekly',
     week: new Date(run.finishedAt ?? run.startedAt).toISOString().slice(0, 10),
   });
   await weeklyApi.publish(run.id, p.id, missed);
@@ -159,28 +179,43 @@ export async function publishWeek(run: WeeklyRun, tracks: Track[], missed: strin
 
 let busy = false;
 
+/** Build one run's playlist on this phone. Returns a toast message or null. */
+async function publishOne(run: WeeklyRun, onProgress?: (msg: string) => void): Promise<string | null> {
+  const { ok } = await weeklyApi.claim(run.id);
+  if (!ok) return null;
+  onProgress?.(`Building ${runName(run)}…`);
+  const resolved = await Promise.all(run.picks.map((p) => resolveWeeklyPick(p).catch(() => null)));
+  // Songs only on nugs/Spotify get a YouTube backup so everyone can play them.
+  const tracks = await Promise.all(resolved.flatMap((r) => (r ? songsFor(r) : [])).map((t) => ensureFreeSource(t)));
+  const missed = run.picks
+    .filter((_, i) => resolved[i]?.status !== 'ok')
+    .map((p) => `${p.artist}${p.date ? ` ${p.date}` : p.highlight ? ` (${p.highlight})` : ''}`);
+  if (!tracks.length) return null;
+  const p = await publishWeek(run, tracks, missed);
+  return `${p.name} is up: ${tracks.length} songs${missed.length ? ` (${missed.length} couldn’t be found)` : ''}`;
+}
+
 /**
- * On app open: if the server has finished picks nobody has published yet,
- * and the group auto-publishes, build the playlist from this phone.
- * Returns a message for a toast, or null.
+ * On app open: if the server has finished picks nobody has published yet
+ * (Side A and/or Side B), and the group auto-publishes, build them here.
  */
 export async function autoPublishIfReady(onProgress?: (msg: string) => void): Promise<string | null> {
   if (busy || !group.signedIn()) return null;
   busy = true;
   try {
-    const { run, autoPublish } = await weeklyApi.pending();
-    if (!run) return null;
-    if (!autoPublish) return group.get()?.me.role === 'owner' ? 'This week’s picks are ready to review (Services → Weekly picks)' : null;
-    const { ok } = await weeklyApi.claim(run.id);
-    if (!ok) return null;
-    onProgress?.(`Building ${weekName(run.finishedAt ?? run.startedAt)}…`);
-    const resolved = await Promise.all(run.picks.map((p) => resolveWeeklyPick(p).catch(() => null)));
-    // Songs only on nugs/Spotify get a YouTube backup so everyone can play them.
-    const tracks = await Promise.all(resolved.flatMap((r) => (r ? songsFor(r) : [])).map((t) => ensureFreeSource(t)));
-    const missed = run.picks.filter((_, i) => resolved[i]?.status !== 'ok').map((p) => `${p.artist}${p.date ? ` ${p.date}` : ''}`);
-    if (!tracks.length) return null;
-    const p = await publishWeek(run, tracks, missed);
-    return `${p.name} is up: ${tracks.length} songs${missed.length ? ` (${missed.length} couldn’t be found)` : ''}`;
+    const res = await weeklyApi.pending();
+    const runs = res.runs ?? (res.run ? [{ ...res.run, autoPublish: res.autoPublish }] : []);
+    const msgs: string[] = [];
+    for (const run of runs) {
+      if (!run.autoPublish) {
+        if (res.isOwner ?? group.get()?.me.role === 'owner')
+          msgs.push(`${runName(run)} is ready to review (Friends → Weekly picks)`);
+        continue;
+      }
+      const m = await publishOne(run, onProgress).catch(() => null);
+      if (m) msgs.push(m);
+    }
+    return msgs.length ? msgs.join(' · ') : null;
   } catch {
     return null;
   } finally {

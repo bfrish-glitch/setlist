@@ -48,6 +48,10 @@ export function ThisWeek({ onGoServices }: { onGoServices: () => void }) {
     () => all.filter((p) => p.kind === 'weekly').sort((a, b) => b.createdAt - a.createdAt),
     [all],
   );
+  const sideBs = useMemo(
+    () => all.filter((p) => p.kind === 'discovery').sort((a, b) => b.createdAt - a.createdAt),
+    [all],
+  );
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
   const week: Playlist | undefined = weeks.find((w) => w.id === pickedId) ?? weeks[0];
@@ -83,6 +87,9 @@ export function ThisWeek({ onGoServices }: { onGoServices: () => void }) {
   }
 
   const isLatest = week.id === weeks[0]?.id;
+  // Side B (new bands) shows with the latest week only.
+  const sideB = isLatest ? sideBs[0] : undefined;
+  const commentTrack = [...week.tracks, ...(sideB?.tracks ?? [])].find((t) => t.key === commentsFor);
   const total = week.tracks.reduce((n, t) => n + (duration(t) ?? 0), 0);
 
   return (
@@ -98,57 +105,29 @@ export function ThisWeek({ onGoServices }: { onGoServices: () => void }) {
         Play side A
       </button>
 
-      <div className="stubs">
-        {week.tracks.map((t, i) => {
-          const c = STUBS[i % STUBS.length];
-          const { date, place } = splitSubtitle(t);
-          const ok = playable(t);
-          const on = nowKey === t.key;
-          const d = duration(t);
-          return (
-            <div key={t.key}>
-              <button
-                className={`stub-card ${ok ? '' : 'dim'} ${on ? 'on' : ''}`}
-                style={{ background: c.bg }}
-                onClick={() => ok && player.playQueue(week.tracks, i)}
-                aria-label={`Play ${t.title} by ${t.artist}`}
-              >
-                <span className="stub-num" style={{ color: c.ink }}>
-                  {on && playing ? '♪' : i + 1}
-                </span>
-                <span className="stub-main" style={{ borderRightColor: c.dash }}>
-                  <span className="stub-title">{t.title}</span>
-                  <span className="stub-sub">
-                    {t.artist}
-                    {place ? ` · ${place}` : ''}
-                  </span>
-                  {t.note && (
-                    <span className="stub-note" style={{ color: c.ink }}>
-                      {t.note.length > 120 ? `${t.note.slice(0, 117)}…` : t.note}
-                    </span>
-                  )}
-                </span>
-                <span className="stub-side">
-                  <span className="stub-date">{date || 'NEW'}</span>
-                  {d ? <span className="stub-dur">{fmt(d)}</span> : null}
-                </span>
-              </button>
-              <div className="stub-actions">
-                <SocialBar track={t} onComments={() => setCommentsFor(t.key)} />
-                {t.shows?.some((r) => r.source !== 'youtube') && (
-                  <button className="link small-link" onClick={() => void playFullShow(t)}>
-                    ≣ full show
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <StubList tracks={week.tracks} nowKey={nowKey} playing={playing} onComments={setCommentsFor} />
 
-      {commentsFor && week.tracks.find((t) => t.key === commentsFor) && (
-        <CommentsSheet track={week.tracks.find((t) => t.key === commentsFor)!} onClose={() => setCommentsFor(null)} />
+      {sideB && (
+        <>
+          <div className="side-b-head">
+            <div className="side-b-label">Side B</div>
+            <h2 className="side-b-title">New to Your Radar</h2>
+            <div className="week-sub">
+              {sideB.tracks.length} songs from {new Set(sideB.tracks.map((t) => t.artist)).size} new band
+              {new Set(sideB.tracks.map((t) => t.artist)).size === 1 ? '' : 's'}
+            </div>
+          </div>
+          <button className="play-side alt" onClick={() => player.playQueue(sideB.tracks, 0)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M7 4.5v15l13-7.5z" />
+            </svg>
+            Play side B
+          </button>
+          <StubList tracks={sideB.tracks} nowKey={nowKey} playing={playing} onComments={setCommentsFor} offset={2} />
+        </>
       )}
+
+      {commentsFor && commentTrack && <CommentsSheet track={commentTrack} onClose={() => setCommentsFor(null)} />}
 
       {weeks.length > 1 && (
         <div className="past">
@@ -161,7 +140,7 @@ export function ThisWeek({ onGoServices }: { onGoServices: () => void }) {
                   <span className="track-text">
                     <span className="title">{w.id === weeks[0].id ? `This week · ${w.name}` : w.name}</span>
                     <span className="sub">
-                      {w.tracks.length} jams · {w.tracks.map((t) => t.artist).filter((a, i, arr) => arr.indexOf(a) === i).slice(0, 3).join(', ')}
+                      {w.tracks.length} jam{w.tracks.length === 1 ? "" : "s"} · {w.tracks.map((t) => t.artist).filter((a, i, arr) => arr.indexOf(a) === i).slice(0, 3).join(', ')}
                     </span>
                   </span>
                 </button>
@@ -184,5 +163,67 @@ function WeekHeader({ title, sub }: { title: string; sub: string }) {
       <h1 className="week-title">{title}</h1>
       <div className="week-sub">{sub}</div>
     </div>
+  );
+}
+
+function StubList(props: {
+  tracks: Track[];
+  nowKey?: string;
+  playing: boolean;
+  onComments: (key: string) => void;
+  /** Shift the stub colors so Side B doesn't start on the same color as Side A. */
+  offset?: number;
+}) {
+  const { tracks, nowKey, playing, onComments } = props;
+  const offset = props.offset ?? 0;
+  const offsetIndex = (i: number) => i + 1;
+  return (
+      <div className="stubs">
+        {tracks.map((t, i) => {
+          const c = STUBS[(i + offset) % STUBS.length];
+          const { date, place } = splitSubtitle(t);
+          const ok = playable(t);
+          const on = nowKey === t.key;
+          const d = duration(t);
+          return (
+            <div key={t.key}>
+              <button
+                className={`stub-card ${ok ? '' : 'dim'} ${on ? 'on' : ''}`}
+                style={{ background: c.bg }}
+                onClick={() => ok && player.playQueue(tracks, i)}
+                aria-label={`Play ${t.title} by ${t.artist}`}
+              >
+                <span className="stub-num" style={{ color: c.ink }}>
+                  {on && playing ? '♪' : offsetIndex(i)}
+                </span>
+                <span className="stub-main" style={{ borderRightColor: c.dash }}>
+                  <span className="stub-title">{t.title}</span>
+                  <span className="stub-sub">
+                    {t.artist}
+                    {place ? ` · ${place}` : ''}
+                  </span>
+                  {t.note && (
+                    <span className="stub-note" style={{ color: c.ink }}>
+                      {t.note.length > 120 ? `${t.note.slice(0, 117)}…` : t.note}
+                    </span>
+                  )}
+                </span>
+                <span className="stub-side">
+                  <span className="stub-date">{date || 'NEW'}</span>
+                  {d ? <span className="stub-dur">{fmt(d)}</span> : null}
+                </span>
+              </button>
+              <div className="stub-actions">
+                <SocialBar track={t} onComments={() => onComments(t.key)} />
+                {t.shows?.some((r) => r.source !== 'youtube') && (
+                  <button className="link small-link" onClick={() => void playFullShow(t)}>
+                    ≣ full show
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
   );
 }

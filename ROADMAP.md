@@ -88,6 +88,11 @@ The friend's prompt moves into Setlist. Once a week the server researches the we
 - **Prompt v2 (Nov 22):** wide net across jam + bluegrass with a watchlist instead of a fixed band list; shows from the last 14 days only; opens recap listing pages (JamBase, L4LM, elgoose fan reviews, Ryan Storm's Substack, phish.net) before searching; scores picks on agreement between sources and downgrades panned shows; per-band caps (Goose max 1, others max 2) enforced in code; ticket-spam domains blocked; up to 8 searches + 8 capped page fetches.
 - Paste-the-email stays as a manual fallback.
 
+### Side B: New to Your Radar ✅ (Nov 22)
+- Its own weekly run (Thursday 8am ET by default) with a discovery prompt: 1–2 new or emerging bands in jam/jamgrass/psych, 3 songs each (live versions preferred), why they fit and who they sound like; never repeats a featured band.
+- Publishes a "New to Your Radar" playlist, shown on This Week as Side B under Side A. Own settings, prompt editor and Run now in Friends → Weekly picks.
+- Side A (Mondays) no longer picks new artists. Prompt v3 for Side A: aims for the full count, fills with [consensus] → [solid] → [curio] picks (v2 returned only 3).
+
 ### Phase 5: The friends layer
 - ✅ Home screen built around **This Week**, with past weeks archived below (Nov 22).
 - ✅ The curator's one-liner shown on each pick.
