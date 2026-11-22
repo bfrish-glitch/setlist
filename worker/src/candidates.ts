@@ -119,7 +119,7 @@ async function readJamBaseListing(): Promise<Article[]> {
   return out;
 }
 
-const normName = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/\bthe\b/g, '').replace(/[^a-z0-9]+/g, '');
+export const normName = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/\bthe\b/g, '').replace(/[^a-z0-9]+/g, '');
 
 /** Shows each watchlist band played in the window, from Relisten's tape catalog. */
 async function readRelisten(watchlist: string[], days: number): Promise<ShowRow[]> {

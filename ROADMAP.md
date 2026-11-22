@@ -123,6 +123,6 @@ The current look (near-black with a single yellow accent) is generic. Give Setli
 - [x] Two-stage pipeline: code gathers candidates (L4LM, Glide, Relix, Grateful Web, Ryan Storm, JamBase feed + recaps page, Relisten shows for watchlist bands), Claude judges them (prompt v4)
 - [x] "What it considered" per run: picked/passed with reasons, plus which sources answered
 - [x] "You missed one" button: add a missed show to the week and save it as a calibration example
-- [ ] Reference week (Nov 8–22) to check prompt changes against
+- [x] Reference week: freeze a week, rate shows Must/Maybe/Skip, replay any prompt and score it
 - [ ] Fire-based weighting over time
 - [x] Push notifications: scheduled runs ping everyone (iPhone needs the home-screen app); test ping on Turn on

@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   DEFAULT_CONFIG,
+  DEFAULT_PROMPT,
   DEFAULT_DISCOVERY,
   curate,
   discover,
@@ -9,10 +10,10 @@ import {
   type DiscoveryConfig,
   type WeeklyConfig,
 } from './weekly';
-import { candidatesText, gatherCandidates, type Candidates } from './candidates';
+import { candidatesText, gatherCandidates, normName, type Candidates } from './candidates';
 import { generateVapid, sendPush, type VapidKeys } from './push';
 
-type RunKind = 'weekly' | 'discovery';
+type RunKind = 'weekly' | 'discovery' | 'test';
 
 export interface GroupEnv {
   ANTHROPIC_API_KEY?: string;
@@ -103,6 +104,9 @@ export class Group extends DurableObject<GroupEnv> {
       CREATE TABLE IF NOT EXISTS push_subs (
         endpoint TEXT PRIMARY KEY, member_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS ref_shows (
+        id TEXT PRIMARY KEY, artist TEXT NOT NULL, date TEXT NOT NULL, venue TEXT, rating INTEGER, created_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS examples (
         id TEXT PRIMARY KEY, artist TEXT NOT NULL, date TEXT, venue TEXT, song TEXT,
         why TEXT, link TEXT, added_by TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -120,6 +124,7 @@ export class Group extends DurableObject<GroupEnv> {
     if (!cols.includes('kind')) this.sql.exec("ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'weekly'");
     if (!cols.includes('candidates')) this.sql.exec('ALTER TABLE runs ADD COLUMN candidates TEXT');
     if (!cols.includes('considered')) this.sql.exec('ALTER TABLE runs ADD COLUMN considered TEXT');
+    if (!cols.includes('label')) this.sql.exec('ALTER TABLE runs ADD COLUMN label TEXT');
   }
 
   async fetch(req: Request): Promise<Response> {
@@ -171,7 +176,31 @@ export class Group extends DurableObject<GroupEnv> {
     }
     if (method === 'POST' && path === '/weekly/run') {
       if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can run the weekly picks');
-      return this.requestRun(me, body.kind === 'discovery' ? 'discovery' : 'weekly');
+      if (body.kind === 'test' && !this.refMeta()) throw new ApiError(400, 'Make a reference week first');
+      return this.requestRun(me, body.kind === 'discovery' ? 'discovery' : body.kind === 'test' ? 'test' : 'weekly');
+    }
+    if (path.startsWith('/ref')) {
+      if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can use the reference week');
+      if (method === 'GET' && path === '/ref') return this.refInfo();
+      if (method === 'POST' && path === '/ref/create') return this.createRef();
+      if (method === 'POST' && path === '/ref/rate') {
+        const r = body.rating === null ? null : Number(body.rating);
+        if (r !== null && ![0, 1, 2].includes(r)) throw new ApiError(400, 'Rating is 0, 1 or 2');
+        this.sql.exec('UPDATE ref_shows SET rating = ? WHERE id = ?', r, String(body.id));
+        return { ok: true };
+      }
+      if (method === 'POST' && path === '/ref/add') {
+        const artist = typeof body.artist === 'string' ? body.artist.trim().slice(0, 100) : '';
+        const date = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : '';
+        if (!artist || !date) throw new ApiError(400, 'Need a band and a date (YYYY-MM-DD)');
+        this.addRefShow(artist, date, typeof body.venue === 'string' ? body.venue.slice(0, 120) : null, 2);
+        return this.refInfo();
+      }
+      if (method === 'POST' && path === '/ref/delete') {
+        this.sql.exec('DELETE FROM ref_shows WHERE id = ?', String(body.id));
+        return this.refInfo();
+      }
+      throw new ApiError(404, 'Not found');
     }
     if (method === 'POST' && path === '/weekly/missed') {
       if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can teach the weekly picks');
@@ -588,13 +617,75 @@ export class Group extends DurableObject<GroupEnv> {
     return kind === 'discovery' ? this.discoveryConfig() : this.config();
   }
 
+  // ---- reference week: a frozen week you rate once, for scoring prompt changes ----
+
+  private refMeta(): { today: number; createdAt: number; fromRun: string; candidates: string } | null {
+    const m = this.getMeta('ref');
+    return m ? JSON.parse(m) : null;
+  }
+
+  private addRefShow(artist: string, date: string, venue: string | null, rating: number | null = null) {
+    const key = normName(artist);
+    const dup = this.sql
+      .exec<{ id: string; artist: string; rating: number | null }>('SELECT id, artist, rating FROM ref_shows WHERE date = ?', date)
+      .toArray()
+      .find((r) => normName(r.artist) === key);
+    if (dup) {
+      if (rating != null && dup.rating == null) this.sql.exec('UPDATE ref_shows SET rating = ? WHERE id = ?', rating, dup.id);
+      return;
+    }
+    this.sql.exec('INSERT INTO ref_shows (id, artist, date, venue, rating, created_at) VALUES (?, ?, ?, ?, ?, ?)', rid(8), artist, date, venue, rating, now());
+  }
+
+  private refInfo() {
+    const ref = this.refMeta();
+    const shows = this.sql
+      .exec<Record<string, any>>('SELECT * FROM ref_shows ORDER BY date DESC, artist')
+      .toArray()
+      .map((r) => ({ id: r.id, artist: r.artist, date: r.date, venue: r.venue, rating: r.rating ?? null }));
+    const tests = this.sql
+      .exec<Record<string, any>>("SELECT * FROM runs WHERE kind = 'test' ORDER BY started_at DESC LIMIT 10")
+      .toArray()
+      .map((r) => ({ ...this.runRow(r), label: r.label ?? null }));
+    return { ref: ref ? { today: ref.today, createdAt: ref.createdAt } : null, shows, tests, running: !!this.runningRun() };
+  }
+
+  /** Freeze the latest run's candidate list and every show the runs considered. */
+  private createRef() {
+    const run = this.sql
+      .exec<Record<string, any>>("SELECT * FROM runs WHERE kind = 'weekly' AND candidates IS NOT NULL ORDER BY started_at DESC LIMIT 1")
+      .toArray()[0];
+    if (!run) throw new ApiError(400, 'Run Side A once first, so there’s a candidate list to freeze');
+    const cands = JSON.parse(run.candidates) as Candidates;
+    const today = Number(run.started_at);
+    const end = new Date(today).toISOString().slice(0, 10);
+    const windowStart = new Date(today - (this.config().windowDays + 1) * 864e5).toISOString().slice(0, 10);
+    const inWindow = (d: string | null | undefined): d is string => !!d && d >= windowStart && d <= end;
+    this.sql.exec('DELETE FROM ref_shows');
+    this.setMeta('ref', JSON.stringify({ today, createdAt: now(), fromRun: run.id, candidates: candidatesText(cands) }));
+    const runs = this.sql
+      .exec<Record<string, any>>("SELECT picks, considered FROM runs WHERE kind = 'weekly' AND started_at > ? ORDER BY started_at DESC LIMIT 20", today - 2 * 864e5)
+      .toArray();
+    // Shows you added by hand were musts by definition.
+    for (const e of this.examples()) if (inWindow(e.date)) this.addRefShow(e.artist, e.date, e.venue, 2);
+    for (const r of runs) {
+      for (const p of (r.picks ? JSON.parse(r.picks) : []) as { artist: string; date: string | null; venue?: string | null }[])
+        if (inWindow(p.date)) this.addRefShow(p.artist, p.date, p.venue ?? null);
+      for (const c of (r.considered ? JSON.parse(r.considered) : []) as { artist: string; date: string | null }[])
+        if (inWindow(c.date) && !c.artist.includes('/')) this.addRefShow(c.artist, c.date, null);
+    }
+    for (const sh of cands.shows) if (inWindow(sh.date)) this.addRefShow(sh.artist, sh.date, sh.venue || null);
+    return this.refInfo();
+  }
+
   private nextFor(kind: RunKind, from = Date.now()) {
+    if (kind === 'test') return null;
     const c = this.cfgFor(kind);
     return c.enabled ? nextRunAt(c, from) : null;
   }
 
   private requested(): RunKind[] {
-    return (this.getMeta('run_requested') ?? '').split(',').filter((k): k is RunKind => k === 'weekly' || k === 'discovery');
+    return (this.getMeta('run_requested') ?? '').split(',').filter((k): k is RunKind => k === 'weekly' || k === 'discovery' || k === 'test');
   }
 
   /** One alarm drives both schedules and any "Run now": set it to whichever comes first. */
@@ -646,7 +737,7 @@ export class Group extends DurableObject<GroupEnv> {
     const disc = this.discoveryConfig();
     const owner = me.role === 'owner';
     const runs = this.sql
-      .exec<Record<string, any>>('SELECT * FROM runs ORDER BY started_at DESC LIMIT 10')
+      .exec<Record<string, any>>("SELECT * FROM runs WHERE kind != 'test' ORDER BY started_at DESC LIMIT 10")
       .toArray()
       .map((r) => this.runRow(r, owner));
     return {
@@ -792,6 +883,32 @@ export class Group extends DurableObject<GroupEnv> {
         const cfg = this.config();
         cands = await gatherCandidates(cfg.watchlist, cfg.windowDays).catch(() => null);
         if (cands) this.sql.exec('UPDATE runs SET candidates = ? WHERE id = ?', JSON.stringify(cands), id);
+      }
+      if (kind === 'test') {
+        // Replay the frozen reference week with today's prompt. Never published, never notifies.
+        const ref = this.refMeta();
+        if (!ref) throw new Error('No reference week');
+        const cfg = this.config();
+        const end = new Date(ref.today).toISOString().slice(0, 10);
+        const start = new Date(ref.today - (cfg.windowDays + 1) * 864e5).toISOString().slice(0, 10);
+        // Hand-added shows from that same week would hand it the answers.
+        const examples = this.examples().filter((e) => !e.date || e.date < start || e.date > end).slice(0, 12);
+        const custom = cfg.prompt !== DEFAULT_PROMPT;
+        this.sql.exec('UPDATE runs SET label = ? WHERE id = ?', custom ? `custom prompt (v${cfg.promptVersion})` : `prompt v${cfg.promptVersion}`, id);
+        const t = await curate(this.env.ANTHROPIC_API_KEY!, cfg, [], base, ref.candidates, examples, ref.today);
+        this.sql.exec(
+          "UPDATE runs SET status = 'ready', finished_at = ?, picks = ?, dropped = ?, considered = ?, raw = ?, searches = ?, input_tokens = ?, output_tokens = ? WHERE id = ?",
+          now(),
+          JSON.stringify(t.picks),
+          JSON.stringify(t.dropped),
+          JSON.stringify(t.considered ?? []),
+          t.raw,
+          t.searches,
+          t.inputTokens,
+          t.outputTokens,
+          id,
+        );
+        return;
       }
       const res =
         kind === 'discovery'

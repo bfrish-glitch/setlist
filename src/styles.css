@@ -306,3 +306,25 @@ body.yt-on main { padding-bottom: calc(var(--tabs-h) + 96px + min(calc(100vw - 2
 .missed-form label .sub { font-weight: 400; display: inline; }
 .notify-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); margin-top: 8px; }
 .notify-row .track-text { flex: 1; }
+
+/* Reference week */
+.ref-intro { padding: 8px 0; }
+.ref-intro p { margin: 0 0 8px; }
+.ref-shows { display: grid; gap: 2px; }
+.ref-show { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.ref-show .track-text { flex: 1; min-width: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; flex: none; }
+.seg button { border: 0; border-radius: 0; padding: 5px 9px; font-size: 12px; background: transparent; color: var(--muted, #bba); }
+.seg button.on.r2 { background: #3CC6B5; color: #10221f; }
+.seg button.on.r1 { background: #B9A3FF; color: #1d1536; }
+.seg button.on.r0 { background: #E94F8A; color: #2a0d19; }
+.ref-add { display: flex; gap: 6px; padding: 10px 0 2px; }
+.ref-add input { flex: 1; min-width: 0; font: inherit; padding: 7px 9px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.ref-add input[type=date] { flex: none; width: 140px; }
+.ref-test { padding: 6px 0; }
+.ref-test .link { text-align: left; font-weight: 400; display: block; width: 100%; }
+.ref-week, .examples-wrap { display: block; min-width: 0; max-width: 100%; }
+.ref-week summary.sub, .examples-wrap summary.sub { white-space: normal; cursor: pointer; }
+.ref-show .sub { white-space: nowrap; }
+.ref-shows { grid-template-columns: minmax(0, 1fr); }
+.ref-show .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

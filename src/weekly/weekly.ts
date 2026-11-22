@@ -38,7 +38,7 @@ export interface WeeklyConfig {
   model: string;
 }
 
-export type RunKind = 'weekly' | 'discovery';
+export type RunKind = 'weekly' | 'discovery' | 'test';
 
 export interface DiscoveryConfig {
   enabled: boolean;

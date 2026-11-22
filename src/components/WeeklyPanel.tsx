@@ -17,6 +17,7 @@ import {
 } from '../weekly/weekly';
 import { TrackRow } from './common';
 import { ensureFreeSource } from '../sources/ytsearch';
+import { RefWeek } from './RefWeek';
 
 // Claude API list prices (USD): per million tokens, and per search. Update if prices change.
 const PRICES: Record<string, { in: number; out: number }> = {
@@ -169,6 +170,8 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
           </div>
         </details>
       )}
+
+      {owner && <RefWeek model={cfg.model} toast={toast} />}
 
       {owner && !editing && (
         <div className="btns">

@@ -248,8 +248,8 @@ export interface CurateResult {
   outputTokens: number;
 }
 
-const nyToday = () =>
-  new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
+const nyToday = (at = Date.now()) =>
+  new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(at));
 
 const nyDate = (ms: number) =>
   new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(ms));
@@ -271,7 +271,8 @@ export function examplesText(ex: Example[]) {
   return `CALIBRATION: earlier runs missed these shows and the group added them by hand. Use them to judge what this group counts as a standout, and don't make the same kind of miss:\n${lines.join('\n')}`;
 }
 
-export function buildPrompt(cfg: WeeklyConfig, already: string[], candidates = '', examples: Example[] = []) {
+/** `at` pins today, so a test run can replay a past week. */
+export function buildPrompt(cfg: WeeklyConfig, already: string[], candidates = '', examples: Example[] = [], at = Date.now()) {
   const limits = Object.entries(cfg.bandLimits ?? {})
     .filter(([, n]) => n >= 0)
     .map(([band, n]) => `${band}: at most ${n}`)
@@ -284,8 +285,8 @@ export function buildPrompt(cfg: WeeklyConfig, already: string[], candidates = '
   return (
     base
       .replaceAll('{{candidates}}', candidates || '(no candidate list this time; find shows yourself)')
-      .replaceAll('{{today}}', nyToday())
-      .replaceAll('{{windowStart}}', nyDate(Date.now() - cfg.windowDays * 864e5))
+      .replaceAll('{{today}}', nyToday(at))
+      .replaceAll('{{windowStart}}', nyDate(at - cfg.windowDays * 864e5))
       .replaceAll('{{watchlist}}', cfg.watchlist.join(', '))
       .replaceAll('{{picks}}', String(cfg.picks))
       .replaceAll('{{maxPerBand}}', String(cfg.maxPerBand))
@@ -445,8 +446,9 @@ export async function curate(
   baseUrl = 'https://api.anthropic.com',
   candidates = '',
   examples: Example[] = [],
+  at = Date.now(),
 ): Promise<CurateResult> {
-  const { text, tool, ...total } = await callClaude(apiKey, cfg.model, buildPrompt(cfg, already, candidates, examples), baseUrl);
+  const { text, tool, ...total } = await callClaude(apiKey, cfg.model, buildPrompt(cfg, already, candidates, examples, at), baseUrl);
   const parsed = extractJson(text) as { picks?: unknown[]; considered?: unknown[] };
   const considered: Considered[] = (Array.isArray(parsed.considered) ? parsed.considered : [])
     .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
