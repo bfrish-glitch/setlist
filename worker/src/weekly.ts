@@ -254,13 +254,33 @@ const nyToday = () =>
 const nyDate = (ms: number) =>
   new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(ms));
 
-export function buildPrompt(cfg: WeeklyConfig, already: string[], candidates = '') {
+export interface Example {
+  artist: string;
+  date: string | null;
+  venue: string | null;
+  song: string | null;
+  why: string | null;
+}
+
+/** The owner's "you missed one" shows, as a calibration block. */
+export function examplesText(ex: Example[]) {
+  if (!ex.length) return '';
+  const lines = ex.map(
+    (e) => `- ${e.artist}${e.date ? ` ${e.date}` : ''}${e.venue ? `, ${e.venue}` : ''}${e.song ? ` (${e.song})` : ''}${e.why ? `: ${e.why}` : ''}`,
+  );
+  return `CALIBRATION: earlier runs missed these shows and the group added them by hand. Use them to judge what this group counts as a standout, and don't make the same kind of miss:\n${lines.join('\n')}`;
+}
+
+export function buildPrompt(cfg: WeeklyConfig, already: string[], candidates = '', examples: Example[] = []) {
   const limits = Object.entries(cfg.bandLimits ?? {})
     .filter(([, n]) => n >= 0)
     .map(([band, n]) => `${band}: at most ${n}`)
     .join('; ');
   // A custom prompt without the placeholder still gets the candidate list.
-  const base = candidates && !cfg.prompt.includes('{{candidates}}') ? `${cfg.prompt}\n\nCANDIDATE LIST (gathered automatically):\n{{candidates}}` : cfg.prompt;
+  let base = candidates && !cfg.prompt.includes('{{candidates}}') ? `${cfg.prompt}\n\nCANDIDATE LIST (gathered automatically):\n{{candidates}}` : cfg.prompt;
+  const cal = examplesText(examples);
+  if (cal && !base.includes('{{examples}}')) base = `${base}\n\n{{examples}}`;
+  base = base.replaceAll('{{examples}}', cal);
   return (
     base
       .replaceAll('{{candidates}}', candidates || '(no candidate list this time; find shows yourself)')
@@ -424,8 +444,9 @@ export async function curate(
   already: string[],
   baseUrl = 'https://api.anthropic.com',
   candidates = '',
+  examples: Example[] = [],
 ): Promise<CurateResult> {
-  const { text, tool, ...total } = await callClaude(apiKey, cfg.model, buildPrompt(cfg, already, candidates), baseUrl);
+  const { text, tool, ...total } = await callClaude(apiKey, cfg.model, buildPrompt(cfg, already, candidates, examples), baseUrl);
   const parsed = extractJson(text) as { picks?: unknown[]; considered?: unknown[] };
   const considered: Considered[] = (Array.isArray(parsed.considered) ? parsed.considered : [])
     .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')

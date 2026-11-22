@@ -294,3 +294,13 @@ body.yt-on main { padding-bottom: calc(var(--tabs-h) + 96px + min(calc(100vw - 2
 .side-b-label { font-family: var(--font-marker); font-size: 16px; color: var(--teal); }
 .side-b-title { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 32px; line-height: 1.05; color: var(--lavender); }
 .play-side.alt { background: transparent; color: var(--lavender); box-shadow: inset 0 0 0 2px var(--lavender); }
+
+/* You missed one */
+.missed-btn { display: block; margin: 6px auto 18px; color: var(--accent); }
+.missed-form { padding: 12px 16px 16px; display: grid; gap: 12px; }
+.missed-form label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.missed-form input, .missed-form textarea, .missed-found select { width: 100%; font: inherit; font-weight: 400; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.missed-found { display: grid; gap: 6px; padding: 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); }
+.examples div { display: flex; gap: 8px; justify-content: space-between; align-items: baseline; }
+.missed-sheet .sheet-title .sub { font-weight: 400; margin-top: 2px; white-space: normal; }
+.missed-form label .sub { font-weight: 400; display: inline; }

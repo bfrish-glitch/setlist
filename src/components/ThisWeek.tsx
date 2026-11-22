@@ -8,6 +8,7 @@ import { loadShowTracks } from '../resolve/resolve';
 import { normTitle } from '../resolve/text';
 import { fmt } from './common';
 import { CommentsSheet, SocialBar } from './Social';
+import { MissedSheet } from './Missed';
 
 /** Ticket-stub colors, cycled down the list: cream, peach, lavender, mint. */
 const STUBS = [
@@ -54,6 +55,7 @@ export function ThisWeek({ onGoServices }: { onGoServices: () => void }) {
   );
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
   const week: Playlist | undefined = weeks.find((w) => w.id === pickedId) ?? weeks[0];
   const nowKey = queue[index]?.key;
 
@@ -106,6 +108,12 @@ export function ThisWeek({ onGoServices }: { onGoServices: () => void }) {
       </button>
 
       <StubList tracks={week.tracks} nowKey={nowKey} playing={playing} onComments={setCommentsFor} />
+      {g?.me.role === 'owner' && (
+        <button className="link missed-btn" onClick={() => setMissing(true)}>
+          ＋ It missed one
+        </button>
+      )}
+      {missing && <MissedSheet week={week} onClose={() => setMissing(false)} />}
 
       {sideB && (
         <>

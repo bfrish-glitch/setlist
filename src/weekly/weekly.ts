@@ -83,6 +83,19 @@ export interface WeeklyInfo {
   nextDiscovery: number | null;
   hasKey: boolean;
   runs: WeeklyRun[];
+  examples?: MissedExample[];
+}
+
+/** A show the owner said a run missed; it calibrates future runs. */
+export interface MissedExample {
+  id: string;
+  artist: string;
+  date: string | null;
+  venue: string | null;
+  song: string | null;
+  why: string | null;
+  link: string | null;
+  createdAt: number;
 }
 
 export const weeklyApi = {
@@ -93,6 +106,8 @@ export const weeklyApi = {
   pending: () => api<{ runs?: WeeklyRun[]; run: WeeklyRun | null; autoPublish?: boolean; isOwner?: boolean }>('/weekly/pending'),
   claim: (id: string) => api<{ ok: boolean }>('/weekly/claim', { id }),
   publish: (id: string, playlistId: string, missed: string[]) => api<{ ok: boolean }>('/weekly/publish', { id, playlistId, missed }),
+  missed: (e: Omit<MissedExample, 'id' | 'createdAt'>) => api<{ examples: MissedExample[] }>('/weekly/missed', e),
+  deleteExample: (id: string) => api<{ examples: MissedExample[] }>('/weekly/examples/delete', { id }),
 };
 
 /** Turn a pick into the text the resolver understands (heading + why + an explicit highlight cue). */

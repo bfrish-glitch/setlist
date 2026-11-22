@@ -122,7 +122,7 @@ The current look (near-black with a single yellow accent) is generic. Give Setli
 ## Weekly pick quality (Nov 22)
 - [x] Two-stage pipeline: code gathers candidates (L4LM, Glide, Relix, Grateful Web, Ryan Storm, JamBase feed + recaps page, Relisten shows for watchlist bands), Claude judges them (prompt v4)
 - [x] "What it considered" per run: picked/passed with reasons, plus which sources answered
-- [ ] "You missed one" button: add a missed show to the week and save it as a calibration example
+- [x] "You missed one" button: add a missed show to the week and save it as a calibration example
 - [ ] Reference week (Nov 8–22) to check prompt changes against
 - [ ] Fire-based weighting over time
 

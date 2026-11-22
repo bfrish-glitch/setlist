@@ -143,6 +143,33 @@ export function WeeklyPanel({ toast }: { toast: (m: string) => void }) {
 
       {last && <RunSummary run={last} owner={owner} model={cfg.model} onReview={() => setReview(last)} />}
 
+      {owner && (info.examples?.length ?? 0) > 0 && (
+        <details className="run examples-wrap">
+          <summary className="sub">What it’s learned ({info.examples!.length} shows you added by hand)</summary>
+          <div className="sub wrap examples">
+            {info.examples!.map((e) => (
+              <div key={e.id}>
+                <span>
+                  <b>{e.artist}</b>
+                  {e.date ? ` ${e.date}` : ''}
+                  {e.song ? ` · ${e.song}` : ''}
+                  {e.why ? `: ${e.why}` : ''}
+                </span>
+                <button
+                  className="link small-link"
+                  onClick={async () => {
+                    const r = await weeklyApi.deleteExample(e.id);
+                    setInfo({ ...info, examples: r.examples });
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {owner && !editing && (
         <div className="btns">
           <button

@@ -99,6 +99,10 @@ export class Group extends DurableObject<GroupEnv> {
         searches INTEGER, input_tokens INTEGER, output_tokens INTEGER,
         claimed_by TEXT, claimed_at INTEGER, playlist_id TEXT, missed TEXT
       );
+      CREATE TABLE IF NOT EXISTS examples (
+        id TEXT PRIMARY KEY, artist TEXT NOT NULL, date TEXT, venue TEXT, song TEXT,
+        why TEXT, link TEXT, added_by TEXT NOT NULL, created_at INTEGER NOT NULL
+      );
     `);
   }
 
@@ -164,6 +168,15 @@ export class Group extends DurableObject<GroupEnv> {
     if (method === 'POST' && path === '/weekly/run') {
       if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can run the weekly picks');
       return this.requestRun(me, body.kind === 'discovery' ? 'discovery' : 'weekly');
+    }
+    if (method === 'POST' && path === '/weekly/missed') {
+      if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can teach the weekly picks');
+      return this.addExample(me, body);
+    }
+    if (method === 'POST' && path === '/weekly/examples/delete') {
+      if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can change the weekly picks');
+      this.sql.exec('DELETE FROM examples WHERE id = ?', String(body.id));
+      return { ok: true, examples: this.examples() };
     }
     if (method === 'GET' && path === '/weekly/pending') return this.pendingRun(me);
     if (method === 'POST' && path === '/weekly/claim') return this.claimRun(me, String(body.id));
@@ -578,7 +591,36 @@ export class Group extends DurableObject<GroupEnv> {
       nextDiscovery: this.nextFor('discovery'),
       hasKey: !!this.env.ANTHROPIC_API_KEY,
       runs,
+      ...(owner ? { examples: this.examples() } : {}),
     };
+  }
+
+  /** Shows the owner said a run missed. They calibrate future prompts. */
+  private examples() {
+    return this.sql
+      .exec<Record<string, any>>('SELECT * FROM examples ORDER BY created_at DESC LIMIT 40')
+      .toArray()
+      .map((r) => ({ id: r.id, artist: r.artist, date: r.date, venue: r.venue, song: r.song, why: r.why, link: r.link, createdAt: r.created_at }));
+  }
+
+  private addExample(me: Member, body: Record<string, unknown>) {
+    const str = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : null);
+    const artist = str(body.artist, 100);
+    if (!artist) throw new ApiError(400, 'Which band?');
+    const date = str(body.date, 10);
+    this.sql.exec(
+      'INSERT INTO examples (id, artist, date, venue, song, why, link, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      rid(8),
+      artist,
+      date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null,
+      str(body.venue, 120),
+      str(body.song, 120),
+      str(body.why, 400),
+      str(body.link, 400),
+      me.id,
+      now(),
+    );
+    return { ok: true, examples: this.examples() };
   }
 
   private async saveConfig(body: Record<string, unknown>, me: Member) {
@@ -692,9 +734,18 @@ export class Group extends DurableObject<GroupEnv> {
           : await curate(
               this.env.ANTHROPIC_API_KEY!,
               this.config(),
-              [...new Set(past.filter((p) => p.date).map((p) => `${p.artist} ${p.date}`))],
+              [
+                ...new Set([
+                  ...past.filter((p) => p.date).map((p) => `${p.artist} ${p.date}`),
+                  // Missed shows added in earlier weeks are already in a playlist too.
+                  ...this.examples()
+                    .filter((e) => e.date && e.createdAt < now() - 4 * 864e5)
+                    .map((e) => `${e.artist} ${e.date}`),
+                ]),
+              ],
               base,
               cands ? candidatesText(cands) : '',
+              this.examples().slice(0, 12),
             );
       if (res.considered) this.sql.exec('UPDATE runs SET considered = ? WHERE id = ?', JSON.stringify(res.considered), id);
       this.sql.exec(
