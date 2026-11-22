@@ -4,7 +4,7 @@ import { parseYouTube, youtubeTrack } from '../sources/youtube';
 import { archiveTracks, fetchArchiveItem } from '../sources/archive';
 import { SERVER } from '../config';
 import { bestSource, relistenApi, toTrack, venueLine, type RelistenArtist } from '../sources/relisten';
-import { nugs, nugsApi, nugsToTrack, type NugsShow } from '../sources/nugs';
+import { nugs, nugsApi, nugsToTrack } from '../sources/nugs';
 import { findDate, normArtist, normTitle, pairSetlists, shortNote, toIsoDate, type RawPick } from './text';
 
 /**
@@ -96,18 +96,22 @@ async function loadNugs(id: string): Promise<ShowData> {
   };
 }
 
+/** Why the last nugs lookup came up empty, for the "needs a fix" message. */
+let nugsWhy = '';
+
 /** Find a show on nugs by artist + date (needs this person's nugs sign-in). */
 async function findNugs(artist: string, date: string): Promise<ShowData | null> {
-  if (nugs.status() !== 'ready') return null;
+  if (nugs.status() !== 'ready') {
+    nugsWhy = nugs.status() === 'needs-login' ? 'you’re not signed in to nugs on this phone' : '';
+    return null;
+  }
   try {
-    const res = await nugsApi.search(artist);
-    const n = normArtist(artist);
-    const a = res.artists.find((x) => normArtist(x.name) === n) ?? res.artists[0];
-    const candidates: NugsShow[] = [...res.shows];
-    if (a) candidates.push(...(await nugsApi.artistShows(a.id)).shows);
-    const hit = candidates.find((s) => toIsoDate(s.date) === date && (!a || normArtist(s.artist) === normArtist(a.name) || !s.artist));
-    return hit ? await loadNugs(hit.id) : null;
-  } catch {
+    const { show } = await nugsApi.find(artist, date);
+    nugsWhy = '';
+    return await loadNugs(show.id);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '';
+    nugsWhy = /doesn’t have|doesn’t list/.test(msg) ? '' : `nugs said: ${msg}`;
     return null;
   }
 }
@@ -128,7 +132,7 @@ async function findArchive(artist: string, date: string): Promise<ShowData | nul
   const res = await serverJson<{ identifiers: string[] }>(
     `/resolve/archive-search?artist=${encodeURIComponent(artist)}&date=${date}`,
   );
-  for (const id of res?.identifiers.slice(0, 3) ?? []) {
+  for (const id of (Array.isArray(res?.identifiers) ? res!.identifiers : []).slice(0, 3)) {
     try {
       const item = await fetchArchiveItem(id);
       const tracks = archiveTracks(item);
@@ -149,7 +153,7 @@ interface GizzShow {
 /** King Gizzard via Gizz Tapes: soundboards first, archive.org files underneath. */
 async function loadGizz(date: string): Promise<ShowData | null> {
   const g = await serverJson<GizzShow>(`/resolve/gizztapes?date=${date}`);
-  const rec = g?.recordings.find((r) => r.tracks.length);
+  const rec = Array.isArray(g?.recordings) ? g!.recordings.find((r) => Array.isArray(r.tracks) && r.tracks.length) : undefined;
   if (!g || !rec) return null;
   const artist = 'King Gizzard & The Lizard Wizard';
   return {
@@ -173,11 +177,16 @@ async function loadGizz(date: string): Promise<ShowData | null> {
 
 /** Free tapes when Relisten doesn't have the show yet: Gizz Tapes for KGLW, archive.org search for everyone. */
 async function findTapes(artist: string, date: string): Promise<ShowData | null> {
-  if (isGizz(artist)) {
-    const g = await loadGizz(date);
-    if (g) return g;
+  // A fallback must never take the whole pick down with it.
+  try {
+    if (isGizz(artist)) {
+      const g = await loadGizz(date);
+      if (g) return g;
+    }
+    return await findArchive(artist, date);
+  } catch {
+    return null;
   }
-  return findArchive(artist, date);
 }
 
 /* ---- merging ------------------------------------------------------- */
@@ -494,7 +503,9 @@ async function fromText(text: string): Promise<Pick> {
     if (tapes) return finish(text, text, tapes, await crossMatch(tapes));
     const viaNugs = await findNugs(artist.name, d.date);
     if (viaNugs) return finish(text, text, viaNugs, await crossMatch(viaNugs));
-    throw new Error(`Couldn’t find ${artist.name} on ${d.date} on Relisten, archive.org or nugs`);
+    throw new Error(
+      `Couldn’t find ${artist.name} on ${d.date} on Relisten, archive.org or nugs${nugsWhy ? ` (${nugsWhy})` : ''}`,
+    );
   }
   // Artist not on Relisten: try archive.org and nugs with the text before the date.
   const guess = text

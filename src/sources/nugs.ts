@@ -131,6 +131,9 @@ export const nugsApi = {
   search: (q: string) => authed<{ artists: NugsArtist[]; shows: NugsShow[] }>(`/nugs/search?q=${encodeURIComponent(q)}`),
   artistShows: (id: string) => authed<{ shows: NugsShow[]; total: number }>(`/nugs/artist?id=${encodeURIComponent(id)}`),
   show: (id: string) => authed<NugsShow & { songs: NugsSong[] }>(`/nugs/show?id=${encodeURIComponent(id)}`),
+  /** One show by artist + date; pages through big catalogs on the server. */
+  find: (artist: string, date: string) =>
+    authed<{ show: NugsShow }>(`/nugs/find?artist=${encodeURIComponent(artist)}&date=${date}`),
 };
 
 export function nugsToTrack(song: NugsSong, show: NugsShow): Track {

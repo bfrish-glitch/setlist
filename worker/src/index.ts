@@ -80,6 +80,8 @@ export default {
           return json(await me(bearer(req)));
         case 'GET /nugs/search':
           return json(await search(bearer(req), url.searchParams.get('q') ?? ''));
+        case 'GET /nugs/find':
+          return json(await findShow(bearer(req), need(url, 'artist'), need(url, 'date')));
         case 'GET /nugs/artist':
           return json(await artistShows(bearer(req), need(url, 'id'), Number(url.searchParams.get('offset') ?? 1)));
         case 'GET /nugs/show':
@@ -206,13 +208,29 @@ async function me(token: string) {
 
 const IMG = (img: any) => (img?.url ? `https://secure.livedownloads.com${img.url}` : undefined);
 
+/** Show date as YYYY-MM-DD from whichever date field nugs filled in. */
+function isoDate(c: Record<string, any>): string {
+  const p2 = (n: string | number) => String(n).padStart(2, '0');
+  for (const k of ['performanceDate', 'performanceDateFormatted', 'performanceDateShortYearFirst', 'performanceDateYMD', 'releaseDate']) {
+    const v = String(c[k] ?? '').trim();
+    if (!v) continue;
+    let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(v); // 2026-10-10, 2026/10/10
+    if (m) return `${m[1]}-${p2(m[2])}-${p2(m[3])}`;
+    m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(v); // 10/10/2026
+    if (m) return `${m[3]}-${p2(m[1])}-${p2(m[2])}`;
+    m = /^(\d{2})[-/.](\d{2})[-/.](\d{2})$/.exec(v); // 26/10/10 ("short year first")
+    if (m && k === 'performanceDateShortYearFirst') return `20${m[1]}-${m[2]}-${m[3]}`;
+  }
+  return '';
+}
+
 function normShow(c: Record<string, any>) {
   return {
     id: String(c.containerID),
     artistId: c.artistID != null ? String(c.artistID) : undefined,
     artist: c.artistName ?? '',
     title: c.containerInfo ?? c.containerName ?? '',
-    date: c.performanceDateShortYearFirst ?? c.performanceDate ?? c.releaseDateFormatted ?? '',
+    date: isoDate(c) || (c.performanceDateShortYearFirst ?? c.performanceDate ?? c.releaseDateFormatted ?? ''),
     venue: [c.venueName ?? c.venue, c.venueCity, c.venueState].filter(Boolean).join(', '),
     artwork: IMG(c.img),
   };
@@ -452,4 +470,76 @@ async function gizzTapes(date: string) {
         })),
     })),
   };
+}
+
+/* ---- find one show by artist + date ---------------------------------- */
+
+/**
+ * Big catalogs (Billy Strings has well over a thousand shows) don't fit in
+ * one page, and nugs may list them oldest first. Page through intelligently:
+ * look at the first page, figure out the sort order, then jump toward the
+ * target date. At most 8 requests.
+ */
+async function findShow(token: string, artist: string, date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpError(400, 'date must be YYYY-MM-DD');
+  const norm = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '');
+  const found = await search(token, artist);
+  const want = norm(artist);
+  const a = found.artists.find((x) => norm(x.name) === want) ?? found.artists.find((x) => norm(x.name).includes(want)) ?? found.artists[0];
+  const direct = found.shows.find((s) => s.date === date && (!a || s.artistId === a.id || norm(s.artist) === want));
+  if (direct) return { show: direct, via: 'search' };
+  if (!a) throw new HttpError(404, `nugs doesn’t list an artist called ${artist}`, 'no_artist');
+
+  const LIMIT = 100;
+  const page = async (offset: number) => {
+    const r = await catalog(token, {
+      method: 'catalog.containersAll',
+      artistList: a.id,
+      startOffset: String(offset),
+      limit: String(LIMIT),
+      vdisp: '1',
+      availType: '1',
+    });
+    const shows = ((r.containers ?? []) as Record<string, any>[]).map(normShow);
+    return { shows, total: Number(r.totalMatchedRecords ?? shows.length) };
+  };
+
+  const tried: string[] = [];
+  const visited = new Set<number>([1]);
+  let offset = 1;
+  let total = Infinity;
+  for (let i = 0; i < 8 && offset >= 1 && offset <= total; i++) {
+    const { shows, total: t } = await page(offset);
+    total = t;
+    const dates = shows.map((s) => s.date).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+    tried.push(`${offset}:${dates[0] ?? '?'}..${dates[dates.length - 1] ?? '?'}`);
+    const hit = shows.find((s) => s.date === date);
+    if (hit) return { show: hit, via: 'catalog', tried };
+    if (!dates.length || shows.length < LIMIT && offset === 1) break;
+    const first = dates[0];
+    const last = dates[dates.length - 1];
+    const ascending = first <= last;
+    const lo = ascending ? first : last;
+    const hi = ascending ? last : first;
+    if (date >= lo && date <= hi) break; // inside this page's range but missing: nugs doesn't have it
+    // Is the target further down the list, or before this page?
+    const further = ascending ? date > hi : date < lo;
+    if (!further && offset === 1) break; // before the very first page: doesn't exist
+    // Estimate how many shows away the date is from this page's edge, using
+    // this page's shows-per-day, and jump straight there.
+    const dayMs = 864e5;
+    const span = Math.max(1, (Date.parse(hi) - Date.parse(lo)) / dayMs);
+    const perDay = Math.max(dates.length - 1, 1) / span;
+    const edgeDate = further ? (ascending ? hi : lo) : ascending ? lo : hi;
+    const gapDays = Math.abs(Date.parse(date) - Date.parse(edgeDate)) / dayMs;
+    const jump = Math.max(1, Math.round(gapDays * perDay));
+    const edgeIdx = further ? offset + shows.length - 1 : offset;
+    const targetIdx = further ? edgeIdx + jump : edgeIdx - jump;
+    let next = Math.min(Math.max(1, targetIdx - Math.floor(LIMIT / 2)), Math.max(1, total - LIMIT + 1));
+    if (next === offset) next = further ? offset + LIMIT : Math.max(1, offset - LIMIT);
+    if (visited.has(next)) break;
+    visited.add(next);
+    offset = next;
+  }
+  throw new HttpError(404, `nugs doesn’t have ${a.name} on ${date}`, 'no_show');
 }
