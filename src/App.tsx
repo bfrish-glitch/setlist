@@ -7,6 +7,7 @@ import { Services } from './components/Services';
 import { NowPlaying } from './components/NowPlaying';
 import { AddToPlaylist } from './components/AddToPlaylist';
 import { handleSpotifyRedirect, spotify } from './sources/spotify';
+import { youtube } from './sources/youtube';
 import { NugsLogin } from './components/NugsLogin';
 import { JoinSheet } from './components/GroupSheets';
 import { takeInviteFromUrl } from './group/group';
@@ -37,6 +38,9 @@ export default function App() {
       }
       void spotify.warmUp();
     });
+    // Load the YouTube player in the background so the first video starts fast.
+    const t = setTimeout(() => youtube.warmUp(), 3000);
+    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {

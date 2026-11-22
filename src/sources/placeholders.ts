@@ -30,10 +30,3 @@ export const apple = placeholder(
   '#fa243c',
   'Parked for now. Needs an Apple Developer account to switch on.',
 );
-
-export const youtube = placeholder(
-  'youtube',
-  'YouTube',
-  '#ff0033',
-  'IFrame player. The video has to stay visible and it won’t play with the phone locked.',
-);

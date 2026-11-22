@@ -39,10 +39,11 @@ Each listener's player picks the first source they can play, in their own prefer
 - Playlists move from each browser into the database. Existing local playlists migrate on first sign-in.
 - Track model upgraded to multi-source performances (above).
 
-### Phase 2: YouTube + archive.org sources
+### Phase 2: YouTube + archive.org sources ✅
 - **YouTube** (IFrame player): needed for new-artist picks. The video has to stay visible and won't play with the phone locked, so YouTube tracks get flagged as "screen on."
 - **archive.org**: play any archive.org recording directly from its link, for tapes Relisten hasn't indexed yet.
 - **phish.in**: Relisten already uses it; links resolve straight to Relisten.
+- **Add from link** (Browse → 🔗 Link): paste YouTube, archive.org, phish.in, Relisten or nugs links. A head start on Phase 3.
 - **LivePhish**: parked. Separate subscription, and Relisten/phish.in covers the same Phish shows within about a day. Revisit if the group wants official soundboards.
 
 ### Phase 3: Link resolver + fallback matcher

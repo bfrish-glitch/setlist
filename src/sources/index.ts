@@ -3,7 +3,9 @@ import type { SourceAdapter } from './types';
 import { relisten } from './relisten';
 import { spotify } from './spotify';
 import { nugs } from './nugs';
-import { apple, youtube } from './placeholders';
+import { apple } from './placeholders';
+import { youtube } from './youtube';
+import { archive } from './archive';
 
 export const sources: Record<SourceId, SourceAdapter> = {
   relisten,
@@ -11,9 +13,10 @@ export const sources: Record<SourceId, SourceAdapter> = {
   spotify,
   nugs,
   youtube,
+  archive,
 };
 
-export const sourceOrder: SourceId[] = ['relisten', 'nugs', 'spotify', 'apple', 'youtube'];
+export const sourceOrder: SourceId[] = ['relisten', 'nugs', 'youtube', 'archive', 'spotify', 'apple'];
 
 export const canPlay = (id: SourceId) => sources[id].status() === 'ready';
 
@@ -25,7 +28,15 @@ export function resolve(track: Track): Track | null {
   if (canPlay(track.source)) return track;
   for (const alt of track.alts ?? []) {
     if (canPlay(alt.source))
-      return { ...track, source: alt.source, sourceId: alt.sourceId, streamUrl: alt.streamUrl, durationSec: alt.durationSec ?? track.durationSec };
+      return {
+        ...track,
+        source: alt.source,
+        sourceId: alt.sourceId,
+        streamUrl: alt.streamUrl,
+        startSec: alt.startSec,
+        endSec: alt.endSec,
+        durationSec: alt.durationSec ?? track.durationSec,
+      };
   }
   return null;
 }

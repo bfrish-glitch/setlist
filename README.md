@@ -38,7 +38,8 @@ Tracks from a service you haven't connected show dimmed and get skipped, so a sh
 | Apple Music | Parked | MusicKit JS. Needs an Apple Developer account ($99/yr) to sign tokens. Anyone with a subscription can use it. |
 | Spotify | ✅ Built | Search, Liked Songs, your playlists. Plays in the browser via the Web Playback SDK; if that can't start (some iPhones), it drives the Spotify app instead. Premium required. Dev-mode apps are capped at **5 allowlisted users**, added in the Spotify dashboard under User Management. |
 | nugs.net | ✅ Working | Search, artist shows, setlists, FLAC/AAC playback via the Cloudflare relay in `worker/`. Unofficial (mimics the nugs Android app), against their ToS, and will break when nugs changes things. |
-| YouTube | Maybe | IFrame player. The video has to stay visible and won't play with the phone locked. |
+| YouTube | ✅ Working | IFrame player in a small panel. Supports start/end times so one jam inside a full-show video can be a track. Must stay visible; stops when the phone locks. |
+| archive.org | ✅ Working | Any archive.org recording, played straight from its link. |
 
 ## Roadmap
 

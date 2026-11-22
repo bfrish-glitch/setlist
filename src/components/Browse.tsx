@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { SpotifyBrowse } from './SpotifyBrowse';
 import { NugsBrowse } from './NugsBrowse';
+import { LinkAdd } from './LinkAdd';
 import type { Track } from '../types';
 import {
   bestSource,
@@ -20,14 +21,14 @@ type View =
   | { kind: 'year'; artist: RelistenArtist; year: string }
   | { kind: 'show'; artist: RelistenArtist; show: RelistenShow };
 
-type Catalog = 'relisten' | 'nugs' | 'spotify';
-const catalogNames: Record<Catalog, string> = { relisten: 'Relisten', nugs: 'nugs', spotify: 'Spotify' };
+type Catalog = 'relisten' | 'nugs' | 'spotify' | 'link';
+const catalogNames: Record<Catalog, string> = { relisten: 'Relisten', nugs: 'nugs', spotify: 'Spotify', link: '🔗 Link' };
 
 export function Browse({ onAdd, onNugsLogin }: { onAdd: (tracks: Track[]) => void; onNugsLogin: () => void }) {
   const [catalog, setCatalog] = useState<Catalog>('relisten');
   const switcher = (
     <div className="segmented">
-      {(['relisten', 'nugs', 'spotify'] as const).map((c) => (
+      {(['relisten', 'nugs', 'spotify', 'link'] as const).map((c) => (
         <button key={c} className={catalog === c ? 'on' : ''} onClick={() => setCatalog(c)}>
           {catalogNames[c]}
         </button>
@@ -45,6 +46,9 @@ export function Browse({ onAdd, onNugsLogin }: { onAdd: (tracks: Track[]) => voi
       </div>
       <div hidden={catalog !== 'spotify'}>
         <SpotifyBrowse onAdd={onAdd} switcher={switcher} />
+      </div>
+      <div hidden={catalog !== 'link'}>
+        <LinkAdd onAdd={onAdd} switcher={switcher} />
       </div>
     </>
   );

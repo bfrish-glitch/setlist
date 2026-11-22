@@ -2,6 +2,7 @@ import { player, usePlayer } from '../player/engine';
 import { resolve } from '../sources';
 import { SourceBadge, fmt } from './common';
 import { nugs } from '../sources/nugs';
+import { youtube } from '../sources/youtube';
 import { useSourcesVersion } from '../sources/changes';
 
 export function NowPlaying() {
@@ -51,6 +52,9 @@ export function NowPlaying() {
           </button>
         </div>
       </div>
+      {t.source === 'youtube' && youtube.needsTap && (
+        <div className="warn">Tap the video once to start it. Your phone blocks videos from starting on their own.</div>
+      )}
       {s.error && <div className="error-bar">{s.error}</div>}
     </div>
   );

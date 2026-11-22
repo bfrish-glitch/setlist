@@ -84,6 +84,10 @@ export default {
           return json(await artistShows(bearer(req), need(url, 'id'), Number(url.searchParams.get('offset') ?? 1)));
         case 'GET /nugs/show':
           return json(await show(bearer(req), need(url, 'id')));
+        case 'GET /resolve/youtube':
+          return json(await youtubeMeta(need(url, 'id')));
+        case 'GET /resolve/archive':
+          return json(await archiveItem(need(url, 'id')));
         case 'GET /nugs/stream':
           return json(await stream(bearer(req), url.searchParams));
         default:
@@ -301,4 +305,58 @@ async function stream(token: string, p: URLSearchParams) {
   if (!found.length) throw new HttpError(404, 'No browser-playable stream for this track', 'no_stream');
   found.sort((a, b) => (a.format === (preferAac ? 'AAC' : 'FLAC') ? -1 : 0) - (b.format === (preferAac ? 'AAC' : 'FLAC') ? -1 : 0));
   return found[0];
+}
+
+/* ---- link lookups (no login needed) --------------------------------- */
+
+async function youtubeMeta(id: string) {
+  if (!/^[\w-]{11}$/.test(id)) throw new HttpError(400, 'Not a YouTube video id');
+  const r = await fetch(
+    `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`,
+  );
+  if (r.status === 401 || r.status === 403) throw new HttpError(403, 'This video doesn’t allow playing outside YouTube', 'no_embed');
+  if (!r.ok) throw new HttpError(404, 'YouTube video not found');
+  const j = await r.json<{ title: string; author_name: string; thumbnail_url: string }>();
+  return { id, title: j.title, channel: j.author_name, thumbnail: j.thumbnail_url };
+}
+
+function parseLength(v: unknown): number | undefined {
+  if (v == null) return undefined;
+  const s = String(v);
+  if (/^\d+(\.\d+)?$/.test(s)) return Math.round(Number(s));
+  const parts = s.split(':').map(Number);
+  if (parts.some(isNaN)) return undefined;
+  return parts.reduce((acc, n) => acc * 60 + n, 0);
+}
+
+async function archiveItem(id: string) {
+  if (!/^[\w.-]+$/.test(id)) throw new HttpError(400, 'Not an archive.org identifier');
+  const r = await fetch(`https://archive.org/metadata/${id}`);
+  if (!r.ok) throw new HttpError(502, `archive.org returned ${r.status}`);
+  const j = await r.json<{ metadata?: Record<string, any>; files?: Record<string, any>[] }>();
+  if (!j.metadata) throw new HttpError(404, 'archive.org item not found');
+  const m = j.metadata;
+  const files = j.files ?? [];
+  const pick = (fmt: (f: string) => boolean) => files.filter((f) => fmt(String(f.format ?? '')));
+  let audio = pick((f) => f === 'VBR MP3');
+  if (!audio.length) audio = pick((f) => /MP3/i.test(f));
+  if (!audio.length) audio = pick((f) => /^Flac$/i.test(f));
+  const tracks = audio
+    .map((f) => ({
+      file: String(f.name),
+      title: String(f.title ?? String(f.name).replace(/\.[^.]+$/, '')),
+      track: parseInt(String(f.track ?? ''), 10) || undefined,
+      durationSec: parseLength(f.length),
+      url: `https://archive.org/download/${id}/${String(f.name).split('/').map(encodeURIComponent).join('/')}`,
+    }))
+    .sort((a, b) => (a.track ?? 9999) - (b.track ?? 9999) || a.file.localeCompare(b.file, undefined, { numeric: true }));
+  const first = (v: unknown) => (Array.isArray(v) ? v[0] : v);
+  return {
+    id,
+    title: String(first(m.title) ?? id),
+    artist: String(first(m.creator) ?? ''),
+    date: String(first(m.date) ?? ''),
+    venue: [first(m.venue), first(m.coverage)].filter(Boolean).join(', '),
+    tracks,
+  };
 }

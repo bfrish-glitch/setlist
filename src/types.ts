@@ -1,4 +1,4 @@
-export type SourceId = 'relisten' | 'nugs' | 'spotify' | 'apple' | 'youtube';
+export type SourceId = 'relisten' | 'nugs' | 'spotify' | 'apple' | 'youtube' | 'archive';
 
 /**
  * A playable track from any service. Everything the player needs to show and
@@ -18,6 +18,9 @@ export interface Track {
   artworkUrl?: string;
   /** Direct audio URL, for sources that expose one (Relisten). */
   streamUrl?: string;
+  /** Play only part of the source (a jam inside a full-show YouTube video). */
+  startSec?: number;
+  endSec?: number;
   /**
    * Other services carrying the same performance. The player uses the first
    * of [primary, ...alts] that this listener can play.
@@ -33,6 +36,8 @@ export interface SourceRef {
   sourceId: string;
   streamUrl?: string;
   durationSec?: number;
+  startSec?: number;
+  endSec?: number;
 }
 
 export interface Playlist {
