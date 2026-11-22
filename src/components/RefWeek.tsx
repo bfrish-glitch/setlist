@@ -30,18 +30,25 @@ const refApi = {
 };
 
 const norm = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/\bthe\b/g, '').replace(/[^a-z0-9]+/g, '');
+/** Same band, allowing co-bills: "Trey Anastasio Band with Billy Strings" matches both bands. */
 const same = (a: string, b: string) => {
   const x = norm(a);
   const y = norm(b);
-  return !!x && !!y && (x.startsWith(y) || y.startsWith(x));
+  if (x.length < 4 || y.length < 4) return x === y && !!x;
+  return x.includes(y) || y.includes(x);
 };
 
 /** How a test run did against your ratings. */
 export function scoreRun(run: WeeklyRun, shows: RefShow[]) {
-  const matchOf = (p: { artist: string; date: string | null }) => shows.find((s) => s.date === p.date && same(s.artist, p.artist));
+  // A co-billed pick can match several rated rows; it counts as the best of them.
+  const ratingOf = (p: { artist: string; date: string | null }) => {
+    const rs = shows.filter((s) => s.date === p.date && same(s.artist, p.artist) && s.rating !== null).map((s) => s.rating as number);
+    if (rs.length) return Math.max(...rs) as 0 | 1 | 2;
+    return null;
+  };
   const musts = shows.filter((s) => s.rating === 2);
   const caught = musts.filter((m) => run.picks.some((p) => p.date === m.date && same(m.artist, p.artist)));
-  const marks = run.picks.map((p) => matchOf(p)?.rating ?? null);
+  const marks = run.picks.map((p) => ratingOf(p));
   return {
     musts: musts.length,
     caught: caught.length,
