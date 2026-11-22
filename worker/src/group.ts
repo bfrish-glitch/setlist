@@ -340,7 +340,7 @@ export class Group extends DurableObject<GroupEnv> {
   /** Push to every subscribed device (or one member's), dropping dead subscriptions. */
   private async notify(msg: { title: string; body: string; tag?: string; url?: string }, opts: { only?: string; except?: string } = {}) {
     const subs = this.sql
-      .exec<{ endpoint: string; member_id: string; p256dh: string; auth: string }>('SELECT * FROM push_subs ORDER BY created_at DESC LIMIT 25')
+      .exec<{ endpoint: string; member_id: string; p256dh: string; auth: string }>('SELECT * FROM push_subs ORDER BY created_at DESC LIMIT 45')
       .toArray()
       .filter((x) => (!opts.only || x.member_id === opts.only) && x.member_id !== opts.except);
     if (!subs.length) return 0;
@@ -691,7 +691,12 @@ export class Group extends DurableObject<GroupEnv> {
   /** One alarm drives both schedules and any "Run now": set it to whichever comes first. */
   private async schedule() {
     if (this.runningRun()) return; // the alarm handler reschedules when it finishes
-    const times = [this.requested().length ? Date.now() + 500 : null, this.nextFor('weekly'), this.nextFor('discovery')].filter(
+    const times = [
+      this.requested().length ? Date.now() + 500 : null,
+      this.getMeta('notify_pending') ? Date.now() + 1000 : null,
+      this.nextFor('weekly'),
+      this.nextFor('discovery'),
+    ].filter(
       (t): t is number => t != null,
     );
     if (!times.length) {
@@ -849,6 +854,13 @@ export class Group extends DurableObject<GroupEnv> {
   /** The alarm: runs whatever is due (scheduled or "Run now"), then sets the next alarm. */
   async alarm() {
     this.migrate();
+    const pending = this.getMeta('notify_pending');
+    if (pending) {
+      this.sql.exec("DELETE FROM meta WHERE key = 'notify_pending'");
+      await this.notify(JSON.parse(pending)).catch(() => 0);
+      await this.schedule();
+      return;
+    }
     const manual = this.requested();
     this.sql.exec("DELETE FROM meta WHERE key = 'run_requested'");
     const due = new Set<RunKind>(manual);
@@ -943,8 +955,11 @@ export class Group extends DurableObject<GroupEnv> {
       );
       // Scheduled runs that publish themselves ping everyone now; tapping the
       // notification opens the app, which builds the playlist. Manual test runs stay quiet.
-      if (trigger === 'weekly' && this.cfgFor(kind).autoPublish && res.picks.length)
-        await this.notify(this.runMessage(kind, res.picks)).catch(() => 0);
+      // Sent from a fresh alarm: this invocation already spent most of its outbound-request budget.
+      if (trigger === 'weekly' && this.cfgFor(kind).autoPublish && res.picks.length) {
+        this.setMeta('notify_pending', JSON.stringify(this.runMessage(kind, res.picks)));
+        await this.ctx.storage.setAlarm(Date.now() + 2000);
+      }
     } catch (e) {
       this.sql.exec(
         "UPDATE runs SET status = 'error', finished_at = ?, error = ? WHERE id = ?",

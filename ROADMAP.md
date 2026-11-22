@@ -126,3 +126,6 @@ The current look (near-black with a single yellow accent) is generic. Give Setli
 - [x] Reference week: freeze a week, rate shows Must/Maybe/Skip, replay any prompt and score it
 - [ ] Fire-based weighting over time
 - [x] Push notifications: scheduled runs ping everyone (iPhone needs the home-screen app); test ping on Turn on
+- LivePhish findings (Nov 22): same nugs platform; separate accounts at id.livephish.com (browser-style PKCE login, no simple password grant); catalog is open; audio via playback.livephish.com tracks/{id}/url (Bearer, plain signed m4a, no DRM). Feasible as a relay sign-in + new source.
+- Spotify limit: since Mar 2026, Development Mode apps allow 5 allowlisted users (owner needs Premium); extended quota needs 250k MAU. Friends past 5 fall back to YouTube/Relisten.
+
