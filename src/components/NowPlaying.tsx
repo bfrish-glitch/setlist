@@ -1,4 +1,5 @@
 import { player, usePlayer } from '../player/engine';
+import { resolve } from '../sources';
 import { SourceBadge, fmt } from './common';
 import { nugs } from '../sources/nugs';
 import { useSourcesVersion } from '../sources/changes';
@@ -6,7 +7,8 @@ import { useSourcesVersion } from '../sources/changes';
 export function NowPlaying() {
   const s = usePlayer();
   useSourcesVersion();
-  const t = s.queue[s.index];
+  const raw = s.queue[s.index];
+  const t = raw ? (resolve(raw) ?? raw) : undefined;
   if (!t) return s.error ? <div className="now error-bar">{s.error}</div> : null;
 
   const pct = s.durationSec ? Math.min(100, (s.positionSec / s.durationSec) * 100) : 0;

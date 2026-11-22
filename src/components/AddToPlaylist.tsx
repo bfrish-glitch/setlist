@@ -12,8 +12,8 @@ export function AddToPlaylist({ tracks, onClose }: { tracks: Track[]; onClose: (
   const createNew = () => {
     const name = prompt('New playlist name');
     if (name == null) return;
-    const p = playlists.create(name);
-    addTo(p.id, p.name);
+    const p = playlists.create(name, tracks);
+    onClose(`Added ${what} to ${p.name}`);
   };
 
   return (

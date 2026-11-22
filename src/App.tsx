@@ -8,6 +8,8 @@ import { NowPlaying } from './components/NowPlaying';
 import { AddToPlaylist } from './components/AddToPlaylist';
 import { handleSpotifyRedirect, spotify } from './sources/spotify';
 import { NugsLogin } from './components/NugsLogin';
+import { JoinSheet } from './components/GroupSheets';
+import { takeInviteFromUrl } from './group/group';
 
 type Tab = 'browse' | 'playlists' | 'queue' | 'services';
 const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -23,6 +25,8 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [nugsLogin, setNugsLogin] = useState(false);
   const openNugsLogin = () => setNugsLogin(true);
+  // undefined = closed, null = creating the group, string = joining with that invite code
+  const [joining, setJoining] = useState<string | null | undefined>(() => takeInviteFromUrl() ?? undefined);
 
   // Finish a Spotify login if we just came back from accounts.spotify.com.
   useEffect(() => {
@@ -50,7 +54,7 @@ export default function App() {
         </div>
         {tab === 'playlists' && <Playlists />}
         {tab === 'queue' && <Queue onAdd={setAdding} />}
-        {tab === 'services' && <Services onNugsLogin={openNugsLogin} />}
+        {tab === 'services' && <Services onNugsLogin={openNugsLogin} onStartGroup={() => setJoining(null)} toast={setToast} />}
       </main>
       <footer>
         <NowPlaying />
@@ -69,6 +73,18 @@ export default function App() {
           onClose={(msg) => {
             setAdding(null);
             if (msg) setToast(msg);
+          }}
+        />
+      )}
+      {joining !== undefined && (
+        <JoinSheet
+          invite={joining}
+          onClose={(msg) => {
+            setJoining(undefined);
+            if (msg) {
+              setToast(msg);
+              setTab(joining === null ? 'services' : 'playlists');
+            }
           }}
         />
       )}

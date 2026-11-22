@@ -1,14 +1,18 @@
 import { sourceOrder, sources } from '../sources';
 import { Header } from './common';
 import { useSourcesVersion } from '../sources/changes';
+import { GroupPanel } from './GroupPanel';
 
 const label = { ready: 'Ready', 'needs-login': 'Sign in', 'coming-soon': 'Coming soon' } as const;
 
-export function Services({ onNugsLogin }: { onNugsLogin: () => void }) {
+export function Services(props: { onNugsLogin: () => void; onStartGroup: () => void; toast: (m: string) => void }) {
+  const { onNugsLogin } = props;
   useSourcesVersion();
   return (
     <>
       <Header title="Services" />
+      <GroupPanel onStart={props.onStartGroup} toast={props.toast} />
+      <div className="set-name">Your music services</div>
       <div className="list">
         {sourceOrder.map((id) => {
           const s = sources[id];
@@ -39,8 +43,8 @@ export function Services({ onNugsLogin }: { onNugsLogin: () => void }) {
         })}
       </div>
       <p className="fine">
-        Each person signs into their own accounts. Setlist never sees the music files from paid services, it just
-        tells each service’s own player what to play next.
+        Music services are per person and per device: each friend connects their own. When a shared playlist has a
+        song you can’t play, Setlist uses another service you do have, or skips it.
       </p>
     </>
   );

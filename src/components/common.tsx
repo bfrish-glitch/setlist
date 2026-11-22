@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Track } from '../types';
-import { canPlay, sources } from '../sources';
+import { resolve, sources } from '../sources';
 
 export function fmt(sec?: number) {
   if (!sec || !isFinite(sec)) return '';
@@ -27,8 +27,10 @@ export function TrackRow(props: {
   onPlay?: () => void;
   actions?: ReactNode;
 }) {
-  const { track, active, onPlay, actions, index } = props;
-  const playable = canPlay(track.source);
+  const { active, onPlay, actions, index } = props;
+  const resolved = resolve(props.track);
+  const playable = resolved !== null;
+  const track = resolved ?? props.track;
   return (
     <div className={`row track ${active ? 'active' : ''} ${playable ? '' : 'dim'}`}>
       <button className="track-main" onClick={onPlay} disabled={!playable || !onPlay}>
@@ -38,6 +40,7 @@ export function TrackRow(props: {
           <span className="sub">
             <SourceBadge track={track} /> {track.artist}
             {track.subtitle ? ` · ${track.subtitle}` : ''}
+            {track.addedBy ? ` · added by ${track.addedBy}` : ''}
           </span>
         </span>
         <span className="dur">{fmt(track.durationSec)}</span>

@@ -33,7 +33,7 @@ Each listener's player picks the first source they can play, in their own prefer
 
 ## Phases
 
-### Phase 1: Group accounts + shared playlists
+### Phase 1: Group accounts + shared playlists ✅
 - Cloudflare D1 database on the existing Cloudflare account (free tier), served by the existing Worker.
 - Invite link sign-in: one private link, pick a name, the device remembers you. Revocable.
 - Playlists move from each browser into the database. Existing local playlists migrate on first sign-in.

@@ -11,6 +11,12 @@
  * this file when nugs changes their app.
  */
 
+export { Group } from './group';
+
+interface Env {
+  GROUP: DurableObjectNamespace;
+}
+
 const AUTH = 'https://id.nugs.net';
 const API = 'https://streamapi.nugs.net';
 const SUBS = 'https://subscriptions.nugs.net/api/v1/me/subscriptions/';
@@ -33,12 +39,12 @@ class HttpError extends Error {
 }
 
 export default {
-  async fetch(req: Request): Promise<Response> {
+  async fetch(req: Request, env: Env): Promise<Response> {
     const origin = req.headers.get('Origin') ?? '';
     const cors: Record<string, string> = {
       'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Setlist-Token',
       'Access-Control-Max-Age': '86400',
       Vary: 'Origin',
     };
@@ -51,6 +57,16 @@ export default {
     if (origin && !ALLOWED_ORIGINS.includes(origin)) return json({ error: 'Origin not allowed' }, 403);
 
     const url = new URL(req.url);
+
+    // Group + shared playlists live in a single Durable Object.
+    if (url.pathname.startsWith('/api/')) {
+      const stub = env.GROUP.get(env.GROUP.idFromName('main'));
+      const r = await stub.fetch(req);
+      const out = new Response(r.body, r);
+      for (const [k, v] of Object.entries(cors)) out.headers.set(k, v);
+      return out;
+    }
+
     try {
       switch (`${req.method} ${url.pathname}`) {
         case 'GET /':

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { Track } from '../types';
-import { canPlay, sources } from '../sources';
+import { playable, resolve, sources } from '../sources';
 import { sharedAudio } from '../sources/audio';
 
 export interface PlayerState {
@@ -47,8 +47,10 @@ class PlayerEngine {
     this.syncMediaSession();
   }
 
+  /** The current track as resolved to a source this listener can play. */
   get current(): Track | undefined {
-    return this.state.queue[this.state.index];
+    const t = this.state.queue[this.state.index];
+    return t ? (resolve(t) ?? t) : undefined;
   }
 
   /** Replace the queue and start at `startIndex`. */
@@ -110,7 +112,7 @@ class PlayerEngine {
     const { queue } = this.state;
     const skipped = [...this.state.skipped];
     let i = index;
-    while (i >= 0 && i < queue.length && !canPlay(queue[i].source)) {
+    while (i >= 0 && i < queue.length && !playable(queue[i])) {
       if (!skipped.includes(queue[i].key)) skipped.push(queue[i].key);
       i += dir;
     }
@@ -123,7 +125,7 @@ class PlayerEngine {
       return;
     }
 
-    const track = queue[i];
+    const track = resolve(queue[i])!;
     this.set({
       index: i,
       loading: true,

@@ -10,8 +10,10 @@ export const SPOTIFY_CLIENT_ID: string = import.meta.env.VITE_SPOTIFY_CLIENT_ID 
 export const appUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin).toString();
 
 /**
- * The nugs relay (worker/ in this repo, deployed to Cloudflare).
+ * Setlist's server (worker/ in this repo, deployed to Cloudflare): the nugs
+ * relay plus the friends group and shared playlists.
  * Format: https://setlist-nugs.<your-subdomain>.workers.dev
  */
 const NUGS_RELAY_DEFAULT = 'https://setlist-nugs.bfrish.workers.dev';
 export const NUGS_RELAY: string = (import.meta.env.VITE_NUGS_RELAY || NUGS_RELAY_DEFAULT).replace(/\/$/, '');
+export const SERVER = NUGS_RELAY;

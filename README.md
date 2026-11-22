@@ -21,9 +21,11 @@ src/
     placeholders.ts      Apple Music, Spotify, nugs.net, YouTube slots
     index.ts             Registry the player looks up by track.source
   player/engine.ts       Queue, next/prev, cross-source handoff, lock-screen controls
-  store/playlists.ts     Playlists in localStorage + JSON export/import for sharing
+  group/group.ts         Group sign-in (invite link + name), members
+  store/playlists.ts     Shared playlists when in the group, local otherwise
   components/            Browse, Playlists, Queue, Services, Now Playing
-worker/                  Cloudflare Worker relay for nugs.net (stateless)
+worker/                  Cloudflare Worker: nugs relay (stateless) + friends group and
+                         shared playlists (one Durable Object with SQLite)
 ```
 
 Tracks from a service you haven't connected show dimmed and get skipped, so a shared playlist still plays for someone who only has some of the services.

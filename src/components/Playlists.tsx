@@ -1,15 +1,18 @@
 import { useRef, useState } from 'react';
 import { playlists, usePlaylists } from '../store/playlists';
 import { player, usePlayer } from '../player/engine';
-import { canPlay, sourceOrder, sources } from '../sources';
-import { Header, SourceBadge, TrackRow, fmt } from './common';
+import { playable, sourceOrder, sources } from '../sources';
+import { Header, Loading, SourceBadge, TrackRow, fmt } from './common';
+import { useGroup } from '../group/group';
 
 export function Playlists() {
   const all = usePlaylists();
+  const g = useGroup();
   const [openId, setOpenId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  if (openId && playlists.get(openId)) return <PlaylistDetail id={openId} onBack={() => setOpenId(null)} />;
+  const liveId = openId ? playlists.currentId(openId) : null;
+  if (liveId && playlists.get(liveId)) return <PlaylistDetail id={liveId} onBack={() => setOpenId(null)} />;
 
   const create = () => {
     const name = prompt('Playlist name');
@@ -46,7 +49,14 @@ export function Playlists() {
         hidden
         onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])}
       />
-      {all.length === 0 && (
+      {!g && (
+        <div className="warn pad">
+          These playlists live on this phone only. Join your friends group (Services) to share them.
+        </div>
+      )}
+      {g && !playlists.isLoaded() && <Loading what="shared playlists" />}
+      {playlists.lastError() && <div className="warn pad">{playlists.lastError()}</div>}
+      {all.length === 0 && playlists.isLoaded() && (
         <div className="empty">
           No playlists yet. Tap + to make one, or add songs from Browse. Playlists can mix any sources.
         </div>
@@ -61,7 +71,7 @@ export function Playlists() {
               <span className="track-text">
                 <span className="title">{p.name}</span>
                 <span className="sub">
-                  {p.tracks.length} tracks{' '}
+                  {p.tracks.length} {p.tracks.length === 1 ? "track" : "tracks"}{p.createdBy ? ` · by ${p.createdBy}` : ''}{' '}
                   {counts.map(([s]) => (
                     <SourceBadge key={s} track={{ source: s }} />
                   ))}
@@ -83,7 +93,7 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const [editing, setEditing] = useState(false);
 
   const total = p.tracks.reduce((n, t) => n + (t.durationSec ?? 0), 0);
-  const unplayable = p.tracks.filter((t) => !canPlay(t.source));
+  const unplayable = p.tracks.filter((t) => !playable(t));
   const missing = [...new Set(unplayable.map((t) => sources[t.source].name))];
 
   const share = async () => {
@@ -113,7 +123,8 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
       />
       <div className="show-head">
         <div className="sub">
-          {p.tracks.length} tracks{total ? ` · ${fmt(total)}` : ''}
+          {p.tracks.length} {p.tracks.length === 1 ? "track" : "tracks"}{total ? ` · ${fmt(total)}` : ''}
+          {p.createdBy ? ` · made by ${p.createdBy}` : ''}
         </div>
         {missing.length > 0 && (
           <div className="warn">
@@ -149,9 +160,8 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
             <button
               className="danger"
               onClick={() => {
-                if (confirm(`Delete "${p.name}"?`)) {
-                  playlists.remove(id);
-                  onBack();
+                if (confirm(`Delete "${p.name}"${playlists.isShared() ? ' for everyone' : ''}?`)) {
+                  void Promise.resolve(playlists.remove(id)).then(onBack, (e) => alert(e.message));
                 }
               }}
             >

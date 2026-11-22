@@ -18,12 +18,31 @@ export interface Track {
   artworkUrl?: string;
   /** Direct audio URL, for sources that expose one (Relisten). */
   streamUrl?: string;
+  /**
+   * Other services carrying the same performance. The player uses the first
+   * of [primary, ...alts] that this listener can play.
+   */
+  alts?: SourceRef[];
+  /** Shared playlists: who added it. */
+  addedBy?: string;
+}
+
+/** Another place the same performance can play. */
+export interface SourceRef {
+  source: SourceId;
+  sourceId: string;
+  streamUrl?: string;
+  durationSec?: number;
 }
 
 export interface Playlist {
   id: string;
   name: string;
   tracks: Track[];
+  /** Shared playlists only. */
+  createdBy?: string;
+  createdById?: string;
+  kind?: string;
   createdAt: number;
   updatedAt: number;
 }
