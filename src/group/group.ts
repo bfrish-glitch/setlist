@@ -90,6 +90,18 @@ export const group = {
     set({ token: r.token, me: r.me, members: r.members, invite: r.invite });
   },
 
+  /** One-time link (15 minutes) that signs another device in as you, owner rights included. */
+  async deviceLink(): Promise<string> {
+    const r = await api<{ code: string }>('/device/link', {});
+    return `${appUrl()}#device=${r.code}`;
+  },
+
+  async redeemDevice(code: string) {
+    const r = await api<MeInfo & { token: string }>('/device/redeem', { code });
+    set({ token: r.token, me: r.me, members: r.members, invite: r.invite });
+    return r.me;
+  },
+
   async refresh() {
     if (!session) return;
     const r = await api<MeInfo>('/me');
@@ -123,6 +135,14 @@ export function useGroup() {
 /** Invite code from a link like …/setlist/#join=abc123, removed from the URL once read. */
 export function takeInviteFromUrl(): string | null {
   const m = /[#&]join=([\w-]+)/.exec(window.location.hash);
+  if (!m) return null;
+  window.history.replaceState(null, '', appUrl());
+  return m[1];
+}
+
+/** Device code from a link like …/setlist/#device=abc123, removed from the URL once read. */
+export function takeDeviceCodeFromUrl(): string | null {
+  const m = /[#&]device=([\w-]+)/.exec(window.location.hash);
   if (!m) return null;
   window.history.replaceState(null, '', appUrl());
   return m[1];

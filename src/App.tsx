@@ -10,7 +10,7 @@ import { handleSpotifyRedirect, spotify } from './sources/spotify';
 import { youtube } from './sources/youtube';
 import { NugsLogin } from './components/NugsLogin';
 import { JoinSheet } from './components/GroupSheets';
-import { group, takeInviteFromUrl } from './group/group';
+import { group, takeDeviceCodeFromUrl, takeInviteFromUrl } from './group/group';
 import { autoPublishIfReady } from './weekly/weekly';
 
 type Tab = 'browse' | 'playlists' | 'queue' | 'services';
@@ -43,6 +43,19 @@ export default function App() {
     // Load the YouTube player in the background so the first video starts fast.
     const t = setTimeout(() => youtube.warmUp(), 3000);
     return () => clearTimeout(t);
+  }, []);
+
+  // Opened a "use on another device" link: sign this device in as that person.
+  useEffect(() => {
+    const code = takeDeviceCodeFromUrl();
+    if (!code) return;
+    void group.redeemDevice(code).then(
+      (me) => {
+        setToast(`Signed in as ${me.name} on this device`);
+        setTab('playlists');
+      },
+      (e) => setToast(e instanceof Error ? e.message : 'That device link didn’t work'),
+    );
   }, []);
 
   // When the server has finished this week's picks, the first app to open builds the playlist.

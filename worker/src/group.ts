@@ -67,6 +67,12 @@ export class Group extends DurableObject<GroupEnv> {
         track TEXT NOT NULL, added_by TEXT NOT NULL, added_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS items_by_playlist ON items(playlist_id, position);
+      CREATE TABLE IF NOT EXISTS tokens (
+        token_hash TEXT PRIMARY KEY, member_id TEXT NOT NULL, created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS device_codes (
+        code TEXT PRIMARY KEY, member_id TEXT NOT NULL, expires_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS runs (
         id TEXT PRIMARY KEY, trigger TEXT NOT NULL, status TEXT NOT NULL,
         started_at INTEGER NOT NULL, finished_at INTEGER, picks TEXT, raw TEXT, error TEXT,
@@ -94,6 +100,7 @@ export class Group extends DurableObject<GroupEnv> {
     if (method === 'GET' && path === '/status') return { initialized: this.memberCount() > 0 };
     if (method === 'POST' && path === '/group/create') return this.createGroup(body);
     if (method === 'POST' && path === '/join') return this.join(body);
+    if (method === 'POST' && path === '/device/redeem') return this.redeemDevice(String(body.code ?? ''));
 
     // ---- everything else needs a member token ----
     const me = await this.auth(req);
@@ -102,6 +109,7 @@ export class Group extends DurableObject<GroupEnv> {
       this.sql.exec('UPDATE members SET name = ? WHERE id = ?', cleanName(body.name), me.id);
       return this.meInfo({ ...me, name: cleanName(body.name) });
     }
+    if (method === 'POST' && path === '/device/link') return this.deviceLink(me);
     if (method === 'POST' && path === '/invite/rotate') {
       if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can reset the invite link');
       this.setMeta('invite', rid(10));
@@ -111,6 +119,7 @@ export class Group extends DurableObject<GroupEnv> {
       if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can remove people');
       if (body.id === me.id) throw new ApiError(400, 'You can’t remove yourself');
       this.sql.exec('DELETE FROM members WHERE id = ?', String(body.id));
+      this.sql.exec('DELETE FROM tokens WHERE member_id = ?', String(body.id));
       return this.meInfo(me);
     }
 
@@ -212,10 +221,12 @@ export class Group extends DurableObject<GroupEnv> {
   private async auth(req: Request): Promise<Member> {
     const token = req.headers.get('X-Setlist-Token');
     if (!token) throw new ApiError(401, 'Not signed in to the group');
+    const hash = await sha256(token);
     const row = this.sql
       .exec<{ id: string; name: string; role: Member['role'] }>(
-        'SELECT id, name, role FROM members WHERE token_hash = ?',
-        await sha256(token),
+        `SELECT id, name, role FROM members WHERE token_hash = ?1
+         OR id = (SELECT member_id FROM tokens WHERE token_hash = ?1)`,
+        hash,
       )
       .toArray()[0];
     if (!row) throw new ApiError(401, 'Your group sign-in was removed or expired');
@@ -231,6 +242,31 @@ export class Group extends DurableObject<GroupEnv> {
       .toArray()
       .map((r) => ({ id: r.id, name: r.name, role: r.role, lastSeen: r.last_seen }));
     return { me, members, invite: this.getMeta('invite') };
+  }
+
+  /* ---- your other devices ------------------------------------------- */
+
+  /** A one-time code (good for 15 minutes) that signs another device in as you. */
+  private deviceLink(me: Member) {
+    this.sql.exec('DELETE FROM device_codes WHERE expires_at < ?', now());
+    const code = rid(12);
+    this.sql.exec('INSERT INTO device_codes (code, member_id, expires_at) VALUES (?, ?, ?)', code, me.id, now() + 15 * 60000);
+    return { code, expiresAt: now() + 15 * 60000 };
+  }
+
+  private async redeemDevice(code: string) {
+    const row = this.sql
+      .exec<{ member_id: string; expires_at: number }>('SELECT member_id, expires_at FROM device_codes WHERE code = ?', code)
+      .toArray()[0];
+    this.sql.exec('DELETE FROM device_codes WHERE code = ?', code); // one use only
+    if (!row || row.expires_at < now()) throw new ApiError(403, 'That device link expired or was already used. Make a new one.');
+    const member = this.sql
+      .exec<{ id: string; name: string; role: Member['role'] }>('SELECT id, name, role FROM members WHERE id = ?', row.member_id)
+      .toArray()[0];
+    if (!member) throw new ApiError(403, 'That member was removed from the group');
+    const token = rid(24);
+    this.sql.exec('INSERT INTO tokens (token_hash, member_id, created_at) VALUES (?, ?, ?)', await sha256(token), member.id, now());
+    return { token, ...this.meInfo(member) };
   }
 
   /* ---- playlists ---------------------------------------------------- */

@@ -101,6 +101,23 @@ export function GroupPanel({ onStart, toast }: { onStart: () => void; toast: (m:
       </div>
 
       <div className="btns">
+        <button
+          onClick={async () => {
+            try {
+              const url = await group.deviceLink();
+              const text = 'Open this on your other device to sign in as you (works once, for 15 minutes):';
+              if (navigator.share) await navigator.share({ title: 'Setlist on another device', text, url }).catch(() => {});
+              else {
+                await navigator.clipboard.writeText(url).catch(() => {});
+                prompt('Device link copied. Open it on your other device within 15 minutes:', url);
+              }
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'Couldn’t make a device link');
+            }
+          }}
+        >
+          Use on another device
+        </button>
         {owner && (
           <button
             onClick={() =>
