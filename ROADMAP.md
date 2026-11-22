@@ -97,7 +97,7 @@ The friend's prompt moves into Setlist. Once a week the server researches the we
 - ✅ Home screen built around **This Week**, with past weeks archived below (Nov 22).
 - ✅ The curator's one-liner shown on each pick.
 - ✅ 🔥 reactions and short comments per song; "who's listened" (after 45s of play) (Nov 22).
-- "New week is up" push notification (works on iPhone for home-screen web apps).
+- "New week is up" push notification (done Nov 22) (works on iPhone for home-screen web apps).
 - Running **All-time favorites** built from reactions.
 - Friends' own adds, tagged with who added them.
 
@@ -125,4 +125,4 @@ The current look (near-black with a single yellow accent) is generic. Give Setli
 - [x] "You missed one" button: add a missed show to the week and save it as a calibration example
 - [ ] Reference week (Nov 8–22) to check prompt changes against
 - [ ] Fire-based weighting over time
-
+- [x] Push notifications: scheduled runs ping everyone (iPhone needs the home-screen app); test ping on Turn on

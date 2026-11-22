@@ -1,3 +1,4 @@
+import { disablePush, enablePush, usePushState } from '../group/push';
 import { useEffect, useState } from 'react';
 import { group, useGroup } from '../group/group';
 
@@ -139,6 +140,8 @@ export function GroupPanel({ onStart, onJoinCode, toast }: { onStart: () => void
         ))}
       </div>
 
+      <NotifyRow toast={toast} />
+
       <div className="btns">
         <button
           onClick={async () => {
@@ -180,6 +183,51 @@ export function GroupPanel({ onStart, onJoinCode, toast }: { onStart: () => void
           Sign out
         </button>
       </div>
+    </div>
+  );
+}
+
+function NotifyRow({ toast }: { toast: (m: string) => void }) {
+  const [state, refresh] = usePushState();
+  const [busy, setBusy] = useState(false);
+  if (state === 'loading' || state === 'unsupported') return null;
+  const copy: Record<string, string> = {
+    'needs-install': 'To get a ping when a new week is up: tap Share, then Add to Home Screen, and open Setlist from there.',
+    denied: 'Notifications are blocked for Setlist. Turn them on in your phone’s Settings.',
+    off: 'Get a ping when a new week goes up.',
+    on: 'On for this device. You’ll get a ping when a new week goes up.',
+  };
+  return (
+    <div className="notify-row">
+      <span className="track-text">
+        <span className="title">Notifications</span>
+        <span className="sub wrap">{copy[state]}</span>
+      </span>
+      {(state === 'off' || state === 'on') && (
+        <button
+          className={state === 'off' ? 'primary small' : 'small'}
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              if (state === 'off') {
+                await enablePush();
+                toast('Notifications on. A test ping is on its way.');
+              } else {
+                await disablePush();
+                toast('Notifications off for this device');
+              }
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'Couldn’t change notifications');
+            } finally {
+              setBusy(false);
+              refresh();
+            }
+          }}
+        >
+          {state === 'off' ? 'Turn on' : 'Turn off'}
+        </button>
+      )}
     </div>
   );
 }

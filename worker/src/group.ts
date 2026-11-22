@@ -10,6 +10,7 @@ import {
   type WeeklyConfig,
 } from './weekly';
 import { candidatesText, gatherCandidates, type Candidates } from './candidates';
+import { generateVapid, sendPush, type VapidKeys } from './push';
 
 type RunKind = 'weekly' | 'discovery';
 
@@ -99,6 +100,9 @@ export class Group extends DurableObject<GroupEnv> {
         searches INTEGER, input_tokens INTEGER, output_tokens INTEGER,
         claimed_by TEXT, claimed_at INTEGER, playlist_id TEXT, missed TEXT
       );
+      CREATE TABLE IF NOT EXISTS push_subs (
+        endpoint TEXT PRIMARY KEY, member_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS examples (
         id TEXT PRIMARY KEY, artist TEXT NOT NULL, date TEXT, venue TEXT, song TEXT,
         why TEXT, link TEXT, added_by TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -177,6 +181,16 @@ export class Group extends DurableObject<GroupEnv> {
       if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can change the weekly picks');
       this.sql.exec('DELETE FROM examples WHERE id = ?', String(body.id));
       return { ok: true, examples: this.examples() };
+    }
+    if (method === 'GET' && path === '/push/key') return { publicKey: (await this.vapid()).publicKey, subscribed: this.mySubs(me).length };
+    if (method === 'POST' && path === '/push/subscribe') return this.subscribe(me, body);
+    if (method === 'POST' && path === '/push/unsubscribe') {
+      this.sql.exec('DELETE FROM push_subs WHERE endpoint = ? AND member_id = ?', String(body.endpoint ?? ''), me.id);
+      return { ok: true };
+    }
+    if (method === 'POST' && path === '/push/test') {
+      const sent = await this.notify({ title: 'Setlist notifications are on', body: 'You’ll get a ping when a new week goes up.', tag: 'test' }, { only: me.id });
+      return { ok: true, sent };
     }
     if (method === 'GET' && path === '/weekly/pending') return this.pendingRun(me);
     if (method === 'POST' && path === '/weekly/claim') return this.claimRun(me, String(body.id));
@@ -264,6 +278,57 @@ export class Group extends DurableObject<GroupEnv> {
   }
 
   /* ---- members ------------------------------------------------------ */
+
+  /** This group's VAPID signing key, made on first use. */
+  private async vapid(): Promise<VapidKeys> {
+    const saved = this.getMeta('vapid');
+    if (saved) return JSON.parse(saved) as VapidKeys;
+    const keys = await generateVapid();
+    this.setMeta('vapid', JSON.stringify(keys));
+    return keys;
+  }
+
+  private mySubs(me: Member) {
+    return this.sql.exec<{ endpoint: string }>('SELECT endpoint FROM push_subs WHERE member_id = ?', me.id).toArray();
+  }
+
+  private subscribe(me: Member, body: Record<string, unknown>) {
+    const endpoint = String(body.endpoint ?? '');
+    const keys = (body.keys ?? {}) as { p256dh?: unknown; auth?: unknown };
+    if (!/^(https:\/\/|http:\/\/127\.0\.0\.1:)/.test(endpoint) || typeof keys.p256dh !== 'string' || typeof keys.auth !== 'string')
+      throw new ApiError(400, 'That subscription looks wrong');
+    this.sql.exec(
+      'INSERT INTO push_subs (endpoint, member_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(endpoint) DO UPDATE SET member_id = excluded.member_id, p256dh = excluded.p256dh, auth = excluded.auth',
+      endpoint.slice(0, 1000),
+      me.id,
+      keys.p256dh.slice(0, 200),
+      keys.auth.slice(0, 100),
+      now(),
+    );
+    return { ok: true };
+  }
+
+  /** Push to every subscribed device (or one member's), dropping dead subscriptions. */
+  private async notify(msg: { title: string; body: string; tag?: string; url?: string }, opts: { only?: string; except?: string } = {}) {
+    const subs = this.sql
+      .exec<{ endpoint: string; member_id: string; p256dh: string; auth: string }>('SELECT * FROM push_subs ORDER BY created_at DESC LIMIT 25')
+      .toArray()
+      .filter((x) => (!opts.only || x.member_id === opts.only) && x.member_id !== opts.except);
+    if (!subs.length) return 0;
+    const keys = await this.vapid();
+    const results = await Promise.all(subs.map((x) => sendPush(x, { url: '/setlist/', ...msg }, keys)));
+    results.forEach((r, i) => r === 'gone' && this.sql.exec('DELETE FROM push_subs WHERE endpoint = ?', subs[i].endpoint));
+    return results.filter((r) => r === 'ok').length;
+  }
+
+  /** "This Week is up" text for a finished run. */
+  private runMessage(kind: RunKind, picks: { artist: string }[]) {
+    const bands = [...new Set(picks.map((p) => p.artist))];
+    const list = bands.slice(0, 3).join(', ') + (bands.length > 3 ? ' & more' : '');
+    return kind === 'discovery'
+      ? { title: 'Side B: New to Your Radar', body: `${bands.length} new band${bands.length === 1 ? '' : 's'} to check out: ${list}`, tag: 'side-b' }
+      : { title: 'This Week is up', body: `${picks.length} jam${picks.length === 1 ? '' : 's'}: ${list}`, tag: 'side-a' };
+  }
 
   private memberCount() {
     return this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM members').one().n;
@@ -759,6 +824,10 @@ export class Group extends DurableObject<GroupEnv> {
         res.outputTokens,
         id,
       );
+      // Scheduled runs that publish themselves ping everyone now; tapping the
+      // notification opens the app, which builds the playlist. Manual test runs stay quiet.
+      if (trigger === 'weekly' && this.cfgFor(kind).autoPublish && res.picks.length)
+        await this.notify(this.runMessage(kind, res.picks)).catch(() => 0);
     } catch (e) {
       this.sql.exec(
         "UPDATE runs SET status = 'error', finished_at = ?, error = ? WHERE id = ?",
@@ -795,7 +864,7 @@ export class Group extends DurableObject<GroupEnv> {
     return { ok: true };
   }
 
-  private publishRun(me: Member, body: Record<string, unknown>) {
+  private async publishRun(me: Member, body: Record<string, unknown>) {
     const id = String(body.id);
     const r = this.sql.exec<Record<string, any>>("SELECT * FROM runs WHERE id = ? AND status = 'ready'", id).toArray()[0];
     if (!r) throw new ApiError(404, 'That run was already published');
@@ -806,6 +875,10 @@ export class Group extends DurableObject<GroupEnv> {
       JSON.stringify(Array.isArray(body.missed) ? body.missed.slice(0, 20) : []),
       id,
     );
+    // A scheduled run the owner reviewed by hand: tell everyone else once it's out.
+    const kind = (r.kind ?? 'weekly') as RunKind;
+    if (r.trigger === 'weekly' && !this.cfgFor(kind).autoPublish)
+      await this.notify(this.runMessage(kind, r.picks ? JSON.parse(r.picks) : []), { except: me.id }).catch(() => 0);
     return { ok: true };
   }
 }

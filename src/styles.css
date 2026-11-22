@@ -304,3 +304,5 @@ body.yt-on main { padding-bottom: calc(var(--tabs-h) + 96px + min(calc(100vw - 2
 .examples div { display: flex; gap: 8px; justify-content: space-between; align-items: baseline; }
 .missed-sheet .sheet-title .sub { font-weight: 400; margin-top: 2px; white-space: normal; }
 .missed-form label .sub { font-weight: 400; display: inline; }
+.notify-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); margin-top: 8px; }
+.notify-row .track-text { flex: 1; }
