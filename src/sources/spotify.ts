@@ -1,4 +1,4 @@
-import { SPOTIFY_CLIENT_ID, appUrl } from '../config';
+import { appUrl, spotifyClientId, usingOwnSpotifyApp } from '../config';
 import { newKey, type Track } from '../types';
 import { notifySourcesChanged } from './changes';
 import type { PlaybackEvents, SourceAdapter } from './types';
@@ -51,7 +51,7 @@ async function startLogin() {
   const state = b64url(crypto.getRandomValues(new Uint8Array(12)));
   sessionStorage.setItem(VERIFIER_KEY, JSON.stringify({ verifier, state }));
   const q = new URLSearchParams({
-    client_id: SPOTIFY_CLIENT_ID,
+    client_id: spotifyClientId(),
     response_type: 'code',
     redirect_uri: appUrl(),
     scope: SCOPES,
@@ -66,7 +66,7 @@ async function tokenRequest(body: Record<string, string>): Promise<StoredToken> 
   const r = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: SPOTIFY_CLIENT_ID, ...body }),
+    body: new URLSearchParams({ client_id: spotifyClientId(), ...body }),
   });
   const j = await r.json();
   if (!r.ok) throw new Error(j.error_description || j.error || `Spotify login failed (${r.status})`);
@@ -275,14 +275,17 @@ class SpotifyAdapter implements SourceAdapter {
   private poll: ReturnType<typeof setInterval> | null = null;
 
   status() {
-    if (!SPOTIFY_CLIENT_ID) return 'coming-soon' as const;
+    if (!spotifyClientId()) return 'coming-soon' as const;
     return readToken() ? ('ready' as const) : ('needs-login' as const);
   }
 
   statusNote() {
-    if (!SPOTIFY_CLIENT_ID) return 'Waiting on the Spotify client ID in the app config.';
-    if (!readToken()) return 'Premium required. Your account must be on the app’s allowlist (max 5 people).';
-    const who = this.userName ? `Signed in as ${this.userName}. ` : 'Signed in. ';
+    if (!spotifyClientId()) return 'Waiting on the Spotify client ID in the app config.';
+    if (!readToken())
+      return usingOwnSpotifyApp()
+        ? 'Premium required. Using your own Spotify app.'
+        : 'Premium required. The shared app fits 5 people; anyone else can use their own (below).';
+    const who = `${this.userName ? `Signed in as ${this.userName}` : 'Signed in'}${usingOwnSpotifyApp() ? ' with your own app' : ''}. `;
     if (this.mode === 'remote')
       return `${who}Playing through the Spotify app${this.remoteDeviceName ? ` (${this.remoteDeviceName})` : ''}, since in-browser playback isn’t available here.`;
     return `${who}Plays right here in the browser.`;

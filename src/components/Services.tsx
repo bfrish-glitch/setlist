@@ -4,6 +4,7 @@ import { useSourcesVersion } from '../sources/changes';
 import { GroupPanel } from './GroupPanel';
 import { WeeklyPanel } from './WeeklyPanel';
 import { BUILD } from '../update';
+import { OwnSpotify } from './OwnSpotify';
 
 const label = { ready: 'Ready', 'needs-login': 'Sign in', 'coming-soon': 'Coming soon' } as const;
 
@@ -45,6 +46,7 @@ export function Services(props: { onNugsLogin: () => void; onStartGroup: () => v
           );
         })}
       </div>
+      <OwnSpotify toast={props.toast} />
       <p className="fine">
         Music services are per person and per device: each friend connects their own. When a shared playlist has a
         song you can’t play, Setlist uses another service you do have, or skips it.

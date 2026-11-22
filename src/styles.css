@@ -328,3 +328,13 @@ body.yt-on main { padding-bottom: calc(var(--tabs-h) + 96px + min(calc(100vw - 2
 .ref-show .sub { white-space: nowrap; }
 .ref-shows { grid-template-columns: minmax(0, 1fr); }
 .ref-show .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Own Spotify app */
+.own-spotify { margin: 10px 16px 0; }
+.own-spotify summary { cursor: pointer; white-space: normal; }
+.own-spotify ol { padding-left: 18px; display: grid; gap: 6px; margin: 8px 0; }
+.own-spotify a { color: var(--accent); }
+.copy-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.copy-row code { font-family: 'Space Mono', monospace; font-size: 12px; background: rgba(255,255,255,0.06); padding: 3px 6px; border-radius: 6px; overflow-wrap: anywhere; }
+.own-form { display: flex; gap: 6px; margin: 4px 0 8px; }
+.own-form input { flex: 1; min-width: 0; font: inherit; padding: 7px 9px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
