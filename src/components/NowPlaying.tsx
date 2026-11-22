@@ -5,7 +5,7 @@ import { nugs } from '../sources/nugs';
 import { youtube } from '../sources/youtube';
 import { useSourcesVersion } from '../sources/changes';
 
-export function NowPlaying() {
+export function NowPlaying({ onOpenQueue }: { onOpenQueue: () => void }) {
   const s = usePlayer();
   useSourcesVersion();
   const raw = s.queue[s.index];
@@ -15,7 +15,7 @@ export function NowPlaying() {
   const pct = s.durationSec ? Math.min(100, (s.positionSec / s.durationSec) * 100) : 0;
 
   return (
-    <div className="now">
+    <div className={`now ${s.playing ? 'playing' : ''}`}>
       <input
         className="scrub"
         type="range"
@@ -28,7 +28,11 @@ export function NowPlaying() {
         aria-label="Seek"
       />
       <div className="now-row">
-        <div className="now-text">
+        <span className="cassette" aria-hidden="true">
+          <i />
+          <i />
+        </span>
+        <button className="now-text" onClick={onOpenQueue} aria-label="Open the queue">
           <div className="title">{t.title}</div>
           <div className="sub">
             <SourceBadge track={t} />
@@ -36,8 +40,8 @@ export function NowPlaying() {
             {t.artist}
             {t.subtitle ? ` · ${t.subtitle}` : ''}
           </div>
-        </div>
-        <div className="now-time">
+        </button>
+        <div className="now-time mono">
           {fmt(s.positionSec) || '0:00'} / {fmt(s.durationSec)}
         </div>
         <div className="controls">

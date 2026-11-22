@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Track } from './types';
 import { Browse } from './components/Browse';
+import { ThisWeek } from './components/ThisWeek';
 import { Playlists } from './components/Playlists';
 import { Queue } from './components/Queue';
 import { Services } from './components/Services';
@@ -14,16 +15,24 @@ import { group, takeDeviceCodeFromUrl, takeInviteFromUrl } from './group/group';
 import { autoPublishIfReady } from './weekly/weekly';
 import { reloadToLatest, useUpdateAvailable } from './update';
 
-type Tab = 'browse' | 'playlists' | 'queue' | 'services';
+type Tab = 'week' | 'browse' | 'playlists' | 'queue' | 'services';
+
+const Icon = ({ d }: { d: string }) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={d} />
+  </svg>
+);
+
+// Queue isn't a tab any more: tap the song in the player bar to open it.
 const tabs: { id: Tab; label: string; icon: string }[] = [
-  { id: 'browse', label: 'Browse', icon: '◉' },
-  { id: 'playlists', label: 'Playlists', icon: '≣' },
-  { id: 'queue', label: 'Queue', icon: '☰' },
-  { id: 'services', label: 'Services', icon: '⚙' },
+  { id: 'week', label: 'This Week', icon: 'M4 7h16v10H4zM8 7v10M16 11h0' },
+  { id: 'browse', label: 'Browse', icon: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4' },
+  { id: 'playlists', label: 'Playlists', icon: 'M4 6h12M4 12h12M4 18h8M19 15v6M16 18h6' },
+  { id: 'services', label: 'Friends', icon: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-3 3-5 6-5s6 2 6 5M16 5a3 3 0 0 1 0 6M18 15c2 .5 3 2.5 3 5' },
 ];
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('browse');
+  const [tab, setTab] = useState<Tab>('week');
   const [adding, setAddingState] = useState<{ tracks: Track[]; name?: string } | null>(null);
   const setAdding = (tracks: Track[], name?: string) => setAddingState({ tracks, name });
   const [toast, setToast] = useState<string | null>(null);
@@ -90,6 +99,7 @@ export default function App() {
         </button>
       )}
       <main>
+        {tab === 'week' && <ThisWeek onGoServices={() => setTab('services')} />}
         {/* Keep Browse mounted so you don't lose your place when switching tabs. */}
         <div hidden={tab !== 'browse'}>
           <Browse onAdd={setAdding} onNugsLogin={openNugsLogin} />
@@ -106,11 +116,13 @@ export default function App() {
         )}
       </main>
       <footer>
-        <NowPlaying />
+        <NowPlaying onOpenQueue={() => setTab('queue')} />
         <nav className="tabs">
           {tabs.map((t) => (
             <button key={t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
-              <span className="tab-icon">{t.icon}</span>
+              <span className="tab-icon">
+                <Icon d={t.icon} />
+              </span>
               {t.label}
             </button>
           ))}

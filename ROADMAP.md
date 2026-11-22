@@ -89,19 +89,20 @@ The friend's prompt moves into Setlist. Once a week the server researches the we
 - Paste-the-email stays as a manual fallback.
 
 ### Phase 5: The friends layer
-- Home screen built around **This Week**, with past weeks archived below.
-- The curator's one-liner shown on each pick.
+- ✅ Home screen built around **This Week**, with past weeks archived below (Nov 22).
+- ✅ The curator's one-liner shown on each pick.
 - 🔥 reactions and short comments per song; "who's listened."
 - "New week is up" push notification (works on iPhone for home-screen web apps).
 - Running **All-time favorites** built from reactions.
 - Friends' own adds, tagged with who added them.
 
-### Redesign: make it groovy
+### Redesign: make it groovy ✅ (design D, Nov 22)
 The current look (near-black with a single yellow accent) is generic. Give Setlist its own personality, closer to a gig poster or a taper's tape label than a default dark app:
 - Warmer, more psychedelic palette (think sunset oranges, deep purples, teals) in place of black + yellow, still easy to read at night.
 - A display typeface with character for headings and the app name; keep body text plain for readability.
 - Small touches: show cards that feel like ticket stubs or tape labels, source badges restyled to match, a proper app icon.
 - Mock up 2–3 directions to pick from before rebuilding, so it's a choice, not a guess.
+- Picked D (combo): A's plum + sunset glow, B's ticket stubs, C's numbered side-A layout with marker notes. Shrikhand / DM Sans / Space Mono / Permanent Marker. Canvas: "Setlist redesign directions".
 
 ### Later
 - Spotify artist and album pages (search is songs-only today, capped at 10 results).
