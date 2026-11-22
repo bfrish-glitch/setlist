@@ -55,6 +55,9 @@ Each listener's player picks the first source they can play, in their own prefer
 - Note for Phase 4: nugs matching uses the importing person's nugs sign-in. A server-side import can match Relisten/archive/YouTube on its own; nugs alternates get added when someone with nugs opens the week.
 
 ### Phase 4: Weekly email → This Week (automation)
+
+What the real email looks like (checked Nov 21): plain text, section headings per artist ("Phish", "Billy Strings", "King Gizzard…", "New to your radar"), one bullet per show starting with the date ("Oct 6, 2026: Venue…"), the blurb, then labelled links in parentheses. Listen links vary: LivePhish (Phish), JamBase recaps only (Billy Strings, no direct nugs URL), Gizz Tapes (tapes.kglw.net/<date>), YouTube/Bandcamp for new artists, and a trailing "Sources:" list. The importer now handles all of this: 7/7 picks on the real email, with highlights pulled from cues like "41:43", "26-minute", "is the jam highlight".
+
 - **Needs a domain** (about $10/yr through Cloudflare). Cloudflare can only receive email on a domain you own, not on workers.dev. Bonus: the app gets a real address too.
 - Friend (or Barry) auto-forwards the email to an address like `week@yourdomain`.
 - The Worker pulls every listen link out of the email, plus the text next to each one (date, venue, the "why").

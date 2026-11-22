@@ -4,7 +4,7 @@ import { parseYouTube, youtubeTrack } from '../sources/youtube';
 import { archiveTracks, fetchArchiveItem } from '../sources/archive';
 import { bestSource, relistenApi, toTrack, venueLine, type RelistenArtist } from '../sources/relisten';
 import { nugs, nugsApi, nugsToTrack, type NugsShow } from '../sources/nugs';
-import { findDate, normArtist, normTitle, pairSetlists, toIsoDate } from './text';
+import { findDate, normArtist, normTitle, pairSetlists, shortNote, toIsoDate, type RawPick } from './text';
 
 /**
  * The link reader. Turns one pasted link or line of text into a "pick": a
@@ -15,8 +15,10 @@ import { findDate, normArtist, normTitle, pairSetlists, toIsoDate } from './text
 export interface Pick {
   id: string;
   input: string;
-  /** Text around the link in the email: the curator's reason. */
+  /** Everything the email says about this pick (used for matching). */
   context?: string;
+  /** The curator's blurb, cleaned up for display. */
+  note?: string;
   status: 'ok' | 'error';
   error?: string;
   artist: string;
@@ -128,7 +130,7 @@ function merge(base: ShowData, other: ShowData | null): void {
   });
 }
 
-function finish(input: string, context: string | undefined, base: ShowData, foundOn: SourceId[], songHint?: string): Pick {
+function finish(input: string, context: string | undefined, base: ShowData, foundOn: SourceId[], songHint?: string, note?: string): Pick {
   const tracks = base.tracks.map((t) => ({
     ...t,
     key: newKey(),
@@ -142,6 +144,7 @@ function finish(input: string, context: string | undefined, base: ShowData, foun
     id: newKey(),
     input,
     context,
+    note,
     status: 'ok',
     artist: base.artist,
     date: base.date,
@@ -152,19 +155,51 @@ function finish(input: string, context: string | undefined, base: ShowData, foun
   };
 }
 
-/** Pick the song the curator's blurb talks about ("the 25-minute Tweezer"). */
+/**
+ * Pick the song the curator's blurb is about. Every song title mentioned
+ * counts; songs next to cue phrases ("41:43", "26-minute", "is the jam
+ * highlight", "the one to hear") win, then the first one mentioned.
+ */
 export function guessHighlight(tracks: Track[], context: string): number {
   const ctx = ` ${normTitle(context)} `;
-  let best = -1;
-  let bestLen = 0;
-  tracks.forEach((t, i) => {
-    const n = normTitle(t.title);
-    // Whole-title mention, longest wins ("Down with Disease" over "Disease").
-    if (n.length >= 3 && ctx.includes(` ${n} `) && n.length > bestLen) {
-      best = i;
-      bestLen = n.length;
+  const cue = /\b(\d{1,2} \d{2}|\d{1,3} minute|highlight|standout|centerpiece|one to hear|best|peak|monster|epic)\b/g;
+  const cues: number[] = [];
+  for (let m; (m = cue.exec(ctx)); ) cues.push(m.index);
+  // Where each song title is mentioned.
+  const mentions = tracks
+    .map((t, i) => {
+      const n = normTitle(t.title);
+      const at = n.length >= 3 ? ctx.indexOf(` ${n} `) : -1;
+      return { i, at, end: at + n.length + 2, len: n.length };
+    })
+    .filter((m) => m.at >= 0);
+  if (!mentions.length) return -1;
+  // Each cue goes to the single closest mention (within reach), so
+  // "…'Billy of the Strings,' and 'Thunder' is the jam highlight" credits Thunder.
+  const cued = new Set<number>();
+  for (const c of cues) {
+    let bestM = -1;
+    let bestD = Infinity;
+    for (const m of mentions) {
+      const d = c < m.at ? m.at - c : c >= m.end ? c - m.end : 0;
+      const reach = c < m.at ? 30 : 40;
+      if (d <= reach && d < bestD) {
+        bestD = d;
+        bestM = m.i;
+      }
     }
-  });
+    if (bestM >= 0) cued.add(bestM);
+  }
+  let best = -1;
+  let bestScore = -Infinity;
+  for (const m of mentions) {
+    // A cue outweighs position; earlier mention next; longer titles break ties.
+    const score = (cued.has(m.i) ? 1000 : 0) - m.at / 10 + m.len / 100;
+    if (score > bestScore) {
+      best = m.i;
+      bestScore = score;
+    }
+  }
   return best;
 }
 
@@ -200,15 +235,20 @@ async function crossMatch(base: ShowData): Promise<SourceId[]> {
 
 /* ---- entry point --------------------------------------------------- */
 
-export async function resolvePick(input: { link?: string; text: string }): Promise<Pick> {
+export async function resolvePick(input: RawPick): Promise<Pick> {
   const raw = input.link ?? input.text;
+  const note = shortNote(input.note);
   try {
-    return input.link ? await fromLink(input.link, input.text) : await fromText(input.text);
+    const p = input.link ? await fromLink(input.link, input.text) : await fromText(input.text);
+    p.note = note;
+    if (p.single && p.tracks[0] && note) p.tracks[0] = { ...p.tracks[0], note };
+    return p;
   } catch (e) {
     return {
       id: newKey(),
       input: raw,
-      context: input.link ? input.text : undefined,
+      context: input.text,
+      note,
       status: 'error',
       error: e instanceof Error ? e.message : 'Couldn’t read that',
       artist: '',
@@ -335,12 +375,20 @@ async function fromLink(link: string, context?: string): Promise<Pick> {
     throw new Error(nugs.status() === 'ready' ? 'Couldn’t find the show in that nugs link' : 'Sign in to nugs (Services) to open nugs links');
   }
 
-  if (host === 'setlist.fm' || host === 'phish.net' || host === 'kglw.net' || host === 'jambase.com') {
-    // Setlist/review pages: use the date and artist in the URL or text.
-    return { ...(await fromText(`${context ?? ''} ${u.pathname.replace(/[-/_]/g, ' ')}`)), input: link, context };
+  // Anything else (Gizz Tapes, JamBase/setlist reviews, Bandcamp…): use the
+  // artist heading + date from the email, plus any date in the link itself,
+  // to find the show on Relisten or nugs.
+  try {
+    const p = await fromText(`${context ?? ''} ${decodeURIComponent(u.pathname).replace(/[/_]/g, ' ')}`);
+    return { ...p, input: link, context };
+  } catch (e) {
+    const why = e instanceof Error ? e.message : '';
+    throw new Error(
+      /bandcamp/.test(host)
+        ? 'Bandcamp can’t be played in Setlist. Try the YouTube link instead.'
+        : `Couldn’t play ${host} directly, and ${why.charAt(0).toLowerCase()}${why.slice(1)}`,
+    );
   }
-
-  throw new Error('Setlist can’t open links from that site yet');
 }
 
 /** "Phish 7/30/25 MSG" or "Billy Strings - Red Rocks - 2025-09-12" */
@@ -349,10 +397,13 @@ async function fromText(text: string): Promise<Pick> {
   if (!d) throw new Error('No show date found in that text');
   const all = await relistenArtists();
   const n = ` ${normArtist(text)} `;
-  // Longest artist name that appears in the text.
+  // The first artist named wins (the email's section heading comes first),
+  // so guest musicians mentioned later don't steal the show. Longer names
+  // break ties ("Billy Strings" over "Billy").
   const artist = all
-    .filter((a) => normArtist(a.name).length >= 3 && n.includes(` ${normArtist(a.name)} `))
-    .sort((a, b) => b.name.length - a.name.length)[0];
+    .map((a) => ({ a, at: n.indexOf(` ${normArtist(a.name)} `) }))
+    .filter((x) => x.at >= 0 && normArtist(x.a.name).length >= 3)
+    .sort((x, y) => x.at - y.at || y.a.name.length - x.a.name.length)[0]?.a;
 
   if (artist) {
     const base = await loadRelisten(artist.slug, d.date);

@@ -14,7 +14,7 @@ type Choice = number | 'all'; // song index, or the full show
 
 function chosenTracks(p: Pick, c: Choice | undefined): Track[] {
   if (p.status !== 'ok' || !p.tracks.length) return [];
-  const pickNote = p.context && p.context.length < 280 ? p.context : undefined;
+  const pickNote = p.note;
   const choice = c ?? p.focus ?? (p.single ? 0 : 'all');
   if (choice === 'all') return p.tracks.map((t, i) => (i === 0 && pickNote ? { ...t, note: pickNote } : t));
   const t = p.tracks[choice];
@@ -64,7 +64,9 @@ export function Import({ onAdd, switcher }: { onAdd: (t: Track[], suggestedName?
     const inp = splitInput(input)[0];
     if (!inp) return;
     setPicks((prev) => prev.map((p, i) => (i === index ? null : p)));
-    const r = await resolvePick({ ...inp, text: inp.text || picks[index]?.context || '' });
+    const prev = picks[index];
+    // Keep the email's heading/blurb so a bare link or date still knows the artist.
+    const r = await resolvePick({ ...inp, text: `${prev?.context ?? ''} ${inp.text}`.trim(), note: prev?.note ?? inp.note });
     setPicks((prev) => prev.map((p, i) => (i === index ? r : p)));
   };
 
@@ -170,7 +172,7 @@ function PickCard(props: { pick: Pick; choice?: Choice; onChoose: (c: Choice) =>
           </span>
         </div>
         <div className="sub wrap mono">{p.input}</div>
-        {p.context && <div className="pick-note">“{p.context.slice(0, 200)}”</div>}
+        {p.note && <div className="pick-note">“{p.note}”</div>}
         <form
           className="fix-row"
           onSubmit={(e) => {
@@ -207,7 +209,7 @@ function PickCard(props: { pick: Pick; choice?: Choice; onChoose: (c: Choice) =>
           </span>
         </span>
       </div>
-      {p.context && <div className="pick-note">“{p.context.slice(0, 220)}”</div>}
+      {p.note && <div className="pick-note">“{p.note}”</div>}
       {!reach.has('relisten') && !reach.has('archive') && !reach.has('youtube') && (
         <div className="warn">Only on {p.foundOn.join(', ')}, so friends without it will skip this one.</div>
       )}

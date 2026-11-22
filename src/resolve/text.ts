@@ -117,41 +117,121 @@ export function toIsoDate(s: string | undefined | null): string | null {
 
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
 
+export interface RawPick {
+  link?: string;
+  /** Everything we know in words: section heading + the line(s) about this pick. */
+  text: string;
+  /** Cleaned-up curator blurb to show on the song. */
+  note?: string;
+}
+
+// Links we can play from, best first. Review/article links are used only for their date.
+const LINK_RANK: [RegExp, number][] = [
+  [/(^|\.)phish\.in$/, 1],
+  [/(^|\.)relisten\.net$/, 1],
+  [/(^|\.)archive\.org$/, 2],
+  [/(^|\.)tapes\.kglw\.net$/, 2],
+  [/(^|\.)nugs\.net$/, 3],
+  [/(^|\.)livephish\.com$/, 4],
+  [/(^|\.)(youtube\.com|youtu\.be)$/, 5],
+];
+function linkRank(url: string) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\.|^m\./, '');
+    return LINK_RANK.find(([re]) => re.test(host))?.[1] ?? 99;
+  } catch {
+    return 100;
+  }
+}
+
+/** Strip link labels left behind once URLs are removed ("Listen on LivePhish () | JamBase review ()"). */
+export function cleanNote(s: string) {
+  let t = s
+    .replace(URL_RE, ' ')
+    .replace(/\(\s*\)/g, ' ')
+    .replace(/\s*\|\s*/g, ' ')
+    .replace(/^\s*[•*\-–]\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Drop a trailing fragment that's just link labels: "…32 years. Listen on LivePhish JamBase review"
+  const lastStop = Math.max(t.lastIndexOf('. '), t.lastIndexOf('." '), t.lastIndexOf('.” '));
+  if (lastStop > 0) {
+    const tail = t.slice(lastStop + 1).trim();
+    if (tail.length < 90 && /\b(listen|stream|watch|tapes?|album|review|recap|youtube|bandcamp|nugs|livephish|link)\b/i.test(tail))
+      t = t.slice(0, lastStop + 1).trim();
+  }
+  // The date and venue already show on the song, so don't repeat them in the note.
+  t = t.replace(/^[A-Z][a-z]{2,8}\.? \d{1,2},? \d{4}:\s*[^.]{0,80}\.\s+/, '');
+  return t;
+}
+
+/** Keep notes readable on a phone: whole sentences, roughly 300 characters max. */
+export function shortNote(s: string | undefined, max = 300) {
+  if (!s) return undefined;
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const stop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('." '), cut.lastIndexOf('.” '));
+  return stop > 80 ? cut.slice(0, stop + 1) : `${cut.replace(/\s+\S*$/, '')}…`;
+}
+
+const isHeading = (line: string) => {
+  const t = line.trim();
+  return t.length > 0 && t.length <= 60 && !t.match(URL_RE) && !findDate(t) && !/[.:;!?]$/.test(t) && !/^[•*\-–]/.test(t);
+};
+
 /**
  * Split pasted text (one link, a list, or a whole email) into picks.
- * Paragraphs are read on their own: text lines attach to the next link as
- * its context (the curator's reason), and dated lines with no link become
- * text searches ("Goose 11/14/25 Chicago").
+ * - Short lines with no date or link are section headings ("Phish") and give
+ *   the following picks their artist.
+ * - A line with links is one pick; the most playable link wins and review
+ *   links are kept only as a fallback.
+ * - A dated line with no link takes the links on the next line, or else
+ *   becomes a text search ("Goose 11/14/25 Chicago").
+ * - Everything after a "Sources:" line is ignored.
  */
-export function splitInput(raw: string): { link?: string; text: string }[] {
-  const out: { link?: string; text: string }[] = [];
+export function splitInput(raw: string): RawPick[] {
+  const out: RawPick[] = [];
   const seen = new Set<string>();
-  const clean = (s: string) => s.replace(URL_RE, ' ').replace(/\s+/g, ' ').trim();
+  let heading = '';
+  let pendingDated: string | null = null;
+  const flushPending = () => {
+    if (pendingDated) out.push({ text: `${heading} ${pendingDated}`.trim(), note: cleanNote(pendingDated) });
+    pendingDated = null;
+  };
 
-  for (const block of raw.split(/\r?\n\s*\r?\n/)) {
-    const lines = block.split(/\r?\n/).filter((l) => l.trim());
-    let pending: string[] = [];
-    let last: { link?: string; text: string } | null = null;
-    for (const line of lines) {
-      const links = (line.match(URL_RE) ?? []).map((l) => l.replace(/[.,;:!?]+$/, ''));
-      if (!links.length) {
-        pending.push(line);
-        continue;
-      }
-      const context = clean([...pending, line].join(' '));
-      pending = [];
-      for (const link of links) {
-        if (seen.has(link)) continue;
-        seen.add(link);
-        last = { link, text: context };
-        out.push(last);
-      }
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushPending(); // a blank line ends whatever the previous pick was
+      continue;
     }
-    // Lines after the last link: dated ones are their own picks, the rest add context.
-    for (const line of pending) {
-      if (findDate(line) && line.trim().length < 200) out.push({ text: line.trim() });
-      else if (last) last.text = clean(`${last.text} ${line}`);
+    if (/^sources?:/i.test(line)) break;
+
+    const links = (line.match(URL_RE) ?? []).map((l) => l.replace(/[.,;:!?]+$/, '')).filter((l) => !seen.has(l));
+    if (!links.length) {
+      if ((line.match(URL_RE) ?? []).length) continue; // only repeats of links we already used
+      if (findDate(line) && line.length < 600) {
+        flushPending();
+        pendingDated = line;
+      } else if (isHeading(line)) {
+        flushPending();
+        heading = line;
+      } else if (pendingDated) {
+        pendingDated = `${pendingDated} ${line}`; // "Why: the 30-minute Tweezer…"
+      }
+      continue;
     }
+
+    links.forEach((l) => seen.add(l));
+    const best = [...links].sort((a, b) => linkRank(a) - linkRank(b))[0];
+    // A link line that brings no date of its own (ignoring dates inside the
+    // URLs) belongs to the dated line above it.
+    const lineDated = !!findDate(line.replace(URL_RE, ' '));
+    const words = pendingDated && !lineDated ? `${pendingDated} ${line}` : line;
+    if (pendingDated && lineDated) flushPending();
+    pendingDated = null;
+    out.push({ link: best, text: `${heading} ${words.replace(URL_RE, ' ')}`.replace(/\s+/g, ' ').trim(), note: cleanNote(words) });
   }
+  flushPending();
   return out;
 }
