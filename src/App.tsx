@@ -14,6 +14,7 @@ import { JoinSheet } from './components/GroupSheets';
 import { group, takeDeviceCodeFromUrl, takeInviteFromUrl } from './group/group';
 import { autoPublishIfReady } from './weekly/weekly';
 import { reloadToLatest, useUpdateAvailable } from './update';
+import { startListenTracking } from './social/social';
 
 type Tab = 'week' | 'browse' | 'playlists' | 'queue' | 'services';
 
@@ -67,6 +68,14 @@ export default function App() {
       },
       (e) => setToast(e instanceof Error ? e.message : 'That device link didn’t work'),
     );
+  }, []);
+
+  // Mark shared songs as listened after 45 seconds of play.
+  useEffect(() => {
+    const stop = startListenTracking();
+    return () => {
+      stop();
+    };
   }, []);
 
   // When the server has finished this week's picks, the first app to open builds the playlist.

@@ -7,6 +7,7 @@ import { canPlay, playable } from '../sources';
 import { loadShowTracks } from '../resolve/resolve';
 import { normTitle } from '../resolve/text';
 import { fmt } from './common';
+import { CommentsSheet, SocialBar } from './Social';
 
 /** Ticket-stub colors, cycled down the list: cream, peach, lavender, mint. */
 const STUBS = [
@@ -48,6 +49,7 @@ export function ThisWeek({ onGoServices }: { onGoServices: () => void }) {
     [all],
   );
   const [pickedId, setPickedId] = useState<string | null>(null);
+  const [commentsFor, setCommentsFor] = useState<string | null>(null);
   const week: Playlist | undefined = weeks.find((w) => w.id === pickedId) ?? weeks[0];
   const nowKey = queue[index]?.key;
 
@@ -131,17 +133,22 @@ export function ThisWeek({ onGoServices }: { onGoServices: () => void }) {
                   {d ? <span className="stub-dur">{fmt(d)}</span> : null}
                 </span>
               </button>
-              {t.shows?.some((r) => r.source !== 'youtube') && (
-                <div className="stub-actions">
+              <div className="stub-actions">
+                <SocialBar track={t} onComments={() => setCommentsFor(t.key)} />
+                {t.shows?.some((r) => r.source !== 'youtube') && (
                   <button className="link small-link" onClick={() => void playFullShow(t)}>
                     ≣ full show
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           );
         })}
       </div>
+
+      {commentsFor && week.tracks.find((t) => t.key === commentsFor) && (
+        <CommentsSheet track={week.tracks.find((t) => t.key === commentsFor)!} onClose={() => setCommentsFor(null)} />
+      )}
 
       {weeks.length > 1 && (
         <div className="past">

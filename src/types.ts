@@ -32,6 +32,8 @@ export interface Track {
   note?: string;
   /** Shared playlists: who added it. */
   addedBy?: string;
+  /** Shared playlists: member ids who 🔥'd / listened, and the comment count. */
+  social?: { fire: string[]; listened: string[]; comments: number };
 }
 
 /**

@@ -123,7 +123,7 @@ export const weekName = (at: number) =>
 /** Create the weekly playlist and mark the run done. */
 export async function publishWeek(run: WeeklyRun, tracks: Track[], missed: string[]) {
   const name = weekName(run.finishedAt ?? run.startedAt);
-  const payload = tracks.map(({ key: _k, addedBy: _a, ...t }) => t);
+  const payload = tracks.map(({ key: _k, addedBy: _a, social: _s, ...t }) => t);
   const p = await api<{ id: string; name: string }>('/playlists', {
     name,
     tracks: payload,

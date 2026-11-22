@@ -67,6 +67,14 @@ export class Group extends DurableObject<GroupEnv> {
         track TEXT NOT NULL, added_by TEXT NOT NULL, added_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS items_by_playlist ON items(playlist_id, position);
+      CREATE TABLE IF NOT EXISTS reactions (
+        item_id TEXT NOT NULL, member_id TEXT NOT NULL, kind TEXT NOT NULL, created_at INTEGER NOT NULL,
+        PRIMARY KEY (item_id, member_id, kind)
+      );
+      CREATE TABLE IF NOT EXISTS comments (
+        id TEXT PRIMARY KEY, item_id TEXT NOT NULL, member_id TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS comments_by_item ON comments(item_id, created_at);
       CREATE TABLE IF NOT EXISTS tokens (
         token_hash TEXT PRIMARY KEY, member_id TEXT NOT NULL, created_at INTEGER NOT NULL
       );
@@ -136,6 +144,43 @@ export class Group extends DurableObject<GroupEnv> {
     if (method === 'POST' && path === '/weekly/claim') return this.claimRun(me, String(body.id));
     if (method === 'POST' && path === '/weekly/publish') return this.publishRun(me, body);
 
+    // ---- reactions, comments, listens on a playlist song ----
+    const item = /^\/items\/([\w-]+)\/(fire|listened|comments)$/.exec(path);
+    if (item) {
+      const [, itemId, what] = item;
+      this.mustHaveItem(itemId);
+      if (what === 'fire' && method === 'POST') {
+        const had = this.sql.exec("SELECT 1 FROM reactions WHERE item_id = ? AND member_id = ? AND kind = 'fire'", itemId, me.id).toArray().length;
+        if (had) this.sql.exec("DELETE FROM reactions WHERE item_id = ? AND member_id = ? AND kind = 'fire'", itemId, me.id);
+        else this.sql.exec("INSERT INTO reactions (item_id, member_id, kind, created_at) VALUES (?, ?, 'fire', ?)", itemId, me.id, now());
+        return this.social(itemId);
+      }
+      if (what === 'listened' && method === 'POST') {
+        this.sql.exec(
+          "INSERT OR IGNORE INTO reactions (item_id, member_id, kind, created_at) VALUES (?, ?, 'listened', ?)",
+          itemId,
+          me.id,
+          now(),
+        );
+        return this.social(itemId);
+      }
+      if (what === 'comments' && method === 'GET') return this.commentsFor(itemId);
+      if (what === 'comments' && method === 'POST') {
+        const text = String(body.text ?? '').trim().replace(/\s+\n/g, '\n').slice(0, 500);
+        if (!text) throw new ApiError(400, 'Say something first');
+        this.sql.exec('INSERT INTO comments (id, item_id, member_id, text, created_at) VALUES (?, ?, ?, ?, ?)', rid(8), itemId, me.id, text, now());
+        return this.commentsFor(itemId);
+      }
+    }
+    const delComment = /^\/comments\/([\w-]+)\/delete$/.exec(path);
+    if (delComment && method === 'POST') {
+      const c = this.sql.exec<{ item_id: string; member_id: string }>('SELECT item_id, member_id FROM comments WHERE id = ?', delComment[1]).toArray()[0];
+      if (!c) throw new ApiError(404, 'Comment already deleted');
+      if (c.member_id !== me.id && me.role !== 'owner') throw new ApiError(403, 'You can only delete your own comments');
+      this.sql.exec('DELETE FROM comments WHERE id = ?', delComment[1]);
+      return this.commentsFor(c.item_id);
+    }
+
     if (method === 'GET' && path === '/playlists') return this.allPlaylists();
     if (method === 'POST' && path === '/playlists') return this.createPlaylist(me, body);
 
@@ -151,6 +196,10 @@ export class Group extends DurableObject<GroupEnv> {
           const p = this.sql.exec<{ created_by: string }>('SELECT created_by FROM playlists WHERE id = ?', id).one();
           if (me.role !== 'owner' && p.created_by !== me.id)
             throw new ApiError(403, 'Only whoever made this playlist can delete it');
+          for (const it of this.sql.exec<{ id: string }>('SELECT id FROM items WHERE playlist_id = ?', id).toArray()) {
+            this.sql.exec('DELETE FROM reactions WHERE item_id = ?', it.id);
+            this.sql.exec('DELETE FROM comments WHERE item_id = ?', it.id);
+          }
           this.sql.exec('DELETE FROM items WHERE playlist_id = ?', id);
           this.sql.exec('DELETE FROM playlists WHERE id = ?', id);
           return { deleted: id };
@@ -160,6 +209,8 @@ export class Group extends DurableObject<GroupEnv> {
           break;
         case 'remove':
           this.sql.exec('DELETE FROM items WHERE playlist_id = ? AND id = ?', id, String(body.key));
+          this.sql.exec('DELETE FROM reactions WHERE item_id = ?', String(body.key));
+          this.sql.exec('DELETE FROM comments WHERE item_id = ?', String(body.key));
           this.renumber(id);
           break;
         case 'move':
@@ -244,6 +295,35 @@ export class Group extends DurableObject<GroupEnv> {
     return { me, members, invite: this.getMeta('invite') };
   }
 
+  /* ---- social: fires, listens, comments ------------------------------ */
+
+  private mustHaveItem(id: string) {
+    if (!this.sql.exec('SELECT 1 FROM items WHERE id = ?', id).toArray().length) throw new ApiError(404, 'That song was removed');
+  }
+
+  /** Who fired / listened to a song (member ids) and how many comments it has. */
+  private social(itemId: string) {
+    const rows = this.sql.exec<{ member_id: string; kind: string }>('SELECT member_id, kind FROM reactions WHERE item_id = ?', itemId).toArray();
+    const comments = this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM comments WHERE item_id = ?', itemId).one().n;
+    return {
+      fire: rows.filter((r) => r.kind === 'fire').map((r) => r.member_id),
+      listened: rows.filter((r) => r.kind === 'listened').map((r) => r.member_id),
+      comments,
+    };
+  }
+
+  private commentsFor(itemId: string) {
+    const names = this.memberNames();
+    const list = this.sql
+      .exec<{ id: string; member_id: string; text: string; created_at: number }>(
+        'SELECT id, member_id, text, created_at FROM comments WHERE item_id = ? ORDER BY created_at',
+        itemId,
+      )
+      .toArray()
+      .map((c) => ({ id: c.id, memberId: c.member_id, name: names.get(c.member_id) ?? 'someone', text: c.text, at: c.created_at }));
+    return { comments: list, social: this.social(itemId) };
+  }
+
   /* ---- your other devices ------------------------------------------- */
 
   /** A one-time code (good for 15 minutes) that signs another device in as you. */
@@ -293,7 +373,7 @@ export class Group extends DurableObject<GroupEnv> {
     for (const t of tracks) {
       if (!t || typeof t !== 'object' || !t.title) continue;
       const key = rid(8);
-      const json = JSON.stringify({ ...t, key, addedBy: undefined });
+      const json = JSON.stringify({ ...t, key, addedBy: undefined, social: undefined, addedAt: undefined });
       if (json.length > 8000) continue;
       this.sql.exec(
         'INSERT INTO items (id, playlist_id, position, track, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -350,7 +430,13 @@ export class Group extends DurableObject<GroupEnv> {
         id,
       )
       .toArray()
-      .map((r) => ({ ...JSON.parse(r.track), key: r.id, addedBy: names.get(r.added_by) ?? 'someone', addedAt: r.added_at }));
+      .map((r) => ({
+        ...JSON.parse(r.track),
+        key: r.id,
+        addedBy: names.get(r.added_by) ?? 'someone',
+        addedAt: r.added_at,
+        social: this.social(r.id),
+      }));
     return {
       id: p.id,
       name: p.name,

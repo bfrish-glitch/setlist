@@ -113,7 +113,7 @@ export const playlists = {
     commit([p, ...state]);
     if (shared()) {
       // Server assigns the real id; swap it in when it answers.
-      const payload = tracks.map(({ key: _k, addedBy: _a, ...t }) => t);
+      const payload = tracks.map(({ key: _k, addedBy: _a, social: _s, ...t }) => t);
       const pending = api<Playlist>('/playlists', { name: p.name, tracks: payload })
         .then((fresh) => {
           pendingIds.set(p.id, fresh.id);
@@ -154,7 +154,7 @@ export const playlists = {
     const add = (p: Playlist) => ({ ...p, tracks: [...p.tracks, ...fresh] });
     if (!shared()) return localUpdate(id, add);
     // Strip per-listener fields before sending.
-    const payload = tracks.map(({ key: _k, addedBy: _a, ...t }) => t);
+    const payload = tracks.map(({ key: _k, addedBy: _a, social: _s, ...t }) => t);
     void sharedOp(id, add, 'add', { tracks: payload }).catch(() => {});
   },
 
@@ -176,10 +176,27 @@ export const playlists = {
     void sharedOp(id, mv, 'move', { from, to }).catch(() => {});
   },
 
+  /** Apply a fresh fire/listen/comment summary to a song wherever it appears. */
+  setSocial(key: string, social: NonNullable<Track['social']>) {
+    let changed = false;
+    const next = state.map((p) => {
+      if (!p.tracks.some((t) => t.key === key)) return p;
+      changed = true;
+      return { ...p, tracks: p.tracks.map((t) => (t.key === key ? { ...t, social } : t)) };
+    });
+    if (changed) {
+      state = next;
+      emit();
+    }
+  },
+
+  /** Is this song part of a shared playlist (so reactions make sense)? */
+  isSharedTrack: (key: string) => shared() && state.some((p) => p.tracks.some((t) => t.key === key)),
+
   exportJson: (id: string) => {
     const p = state.find((x) => x.id === id);
     if (!p) return '';
-    const tracks = p.tracks.map(({ addedBy: _a, ...t }) => t);
+    const tracks = p.tracks.map(({ addedBy: _a, social: _s, ...t }) => t);
     return JSON.stringify({ setlist: 1, name: p.name, tracks }, null, 2);
   },
   importJson(text: string): Playlist {

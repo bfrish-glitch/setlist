@@ -91,7 +91,7 @@ The friend's prompt moves into Setlist. Once a week the server researches the we
 ### Phase 5: The friends layer
 - ✅ Home screen built around **This Week**, with past weeks archived below (Nov 22).
 - ✅ The curator's one-liner shown on each pick.
-- 🔥 reactions and short comments per song; "who's listened."
+- ✅ 🔥 reactions and short comments per song; "who's listened" (after 45s of play) (Nov 22).
 - "New week is up" push notification (works on iPhone for home-screen web apps).
 - Running **All-time favorites** built from reactions.
 - Friends' own adds, tagged with who added them.
