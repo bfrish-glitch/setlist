@@ -1,4 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
+import { DEFAULT_CONFIG, curate, nextRunAt, type WeeklyConfig } from './weekly';
+
+export interface GroupEnv {
+  ANTHROPIC_API_KEY?: string;
+  /** Only for local testing against a fake Claude. */
+  ANTHROPIC_BASE_URL?: string;
+}
 
 /**
  * The friends group: members, invite link and shared playlists.
@@ -39,10 +46,10 @@ const cleanName = (raw: unknown, max = 40) => {
   return s;
 };
 
-export class Group extends DurableObject<Record<string, never>> {
+export class Group extends DurableObject<GroupEnv> {
   private sql = this.ctx.storage.sql;
 
-  constructor(ctx: DurableObjectState, env: Record<string, never>) {
+  constructor(ctx: DurableObjectState, env: GroupEnv) {
     super(ctx, env);
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -60,6 +67,12 @@ export class Group extends DurableObject<Record<string, never>> {
         track TEXT NOT NULL, added_by TEXT NOT NULL, added_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS items_by_playlist ON items(playlist_id, position);
+      CREATE TABLE IF NOT EXISTS runs (
+        id TEXT PRIMARY KEY, trigger TEXT NOT NULL, status TEXT NOT NULL,
+        started_at INTEGER NOT NULL, finished_at INTEGER, picks TEXT, raw TEXT, error TEXT,
+        searches INTEGER, input_tokens INTEGER, output_tokens INTEGER,
+        claimed_by TEXT, claimed_at INTEGER, playlist_id TEXT, missed TEXT
+      );
     `);
   }
 
@@ -100,6 +113,19 @@ export class Group extends DurableObject<Record<string, never>> {
       this.sql.exec('DELETE FROM members WHERE id = ?', String(body.id));
       return this.meInfo(me);
     }
+
+    if (method === 'GET' && path === '/weekly') return this.weeklyInfo(me);
+    if (method === 'POST' && path === '/weekly/config') {
+      if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can change the weekly picks');
+      return this.saveConfig(body, me);
+    }
+    if (method === 'POST' && path === '/weekly/run') {
+      if (me.role !== 'owner') throw new ApiError(403, 'Only the group owner can run the weekly picks');
+      return this.requestRun(me);
+    }
+    if (method === 'GET' && path === '/weekly/pending') return this.pendingRun(me);
+    if (method === 'POST' && path === '/weekly/claim') return this.claimRun(me, String(body.id));
+    if (method === 'POST' && path === '/weekly/publish') return this.publishRun(me, body);
 
     if (method === 'GET' && path === '/playlists') return this.allPlaylists();
     if (method === 'POST' && path === '/playlists') return this.createPlaylist(me, body);
@@ -261,10 +287,13 @@ export class Group extends DurableObject<Record<string, never>> {
   private createPlaylist(me: Member, body: Record<string, unknown>) {
     const id = rid(8);
     this.sql.exec(
-      'INSERT INTO playlists (id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO playlists (id, name, created_by, kind, week, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       id,
       cleanName(body.name ?? 'Untitled', 80),
       me.id,
+      body.kind === 'weekly' ? 'weekly' : 'normal',
+      typeof body.week === 'string' ? body.week.slice(0, 10) : null,
+      typeof body.note === 'string' ? body.note.slice(0, 500) : null,
       Number(body.createdAt) || now(),
       now(),
     );
@@ -306,5 +335,179 @@ export class Group extends DurableObject<Record<string, never>> {
       .exec<{ id: string }>('SELECT id FROM playlists ORDER BY updated_at DESC')
       .toArray()
       .map((r) => this.playlist(r.id, names));
+  }
+
+  /* ---- weekly picks ------------------------------------------------- */
+
+  private config(): WeeklyConfig {
+    const raw = this.getMeta('weekly_config');
+    if (!raw) return DEFAULT_CONFIG;
+    try {
+      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    } catch {
+      return DEFAULT_CONFIG;
+    }
+  }
+
+  /** Make sure the weekly alarm is set (or cleared) to match the config. */
+  private async schedule() {
+    const cfg = this.config();
+    if (this.runningRun()) return; // the alarm handler reschedules when it finishes
+    if (!cfg.enabled) {
+      if (!this.getMeta('run_requested')) await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    const want = nextRunAt(cfg);
+    const have = await this.ctx.storage.getAlarm();
+    if (have == null || (!this.getMeta('run_requested') && Math.abs(have - want) > 60000)) await this.ctx.storage.setAlarm(want);
+  }
+
+  private runningRun() {
+    return this.sql
+      .exec<{ id: string; started_at: number }>("SELECT id, started_at FROM runs WHERE status = 'running' ORDER BY started_at DESC LIMIT 1")
+      .toArray()
+      .find((r) => now() - r.started_at < 20 * 60000); // a run stuck >20 min counts as dead
+  }
+
+  private runRow(r: Record<string, any>, full = false) {
+    return {
+      id: r.id,
+      trigger: r.trigger,
+      status: r.status,
+      startedAt: r.started_at,
+      finishedAt: r.finished_at,
+      picks: r.picks ? JSON.parse(r.picks) : [],
+      error: r.error,
+      searches: r.searches,
+      inputTokens: r.input_tokens,
+      outputTokens: r.output_tokens,
+      playlistId: r.playlist_id,
+      missed: r.missed ? JSON.parse(r.missed) : [],
+      ...(full ? { raw: r.raw } : {}),
+    };
+  }
+
+  private async weeklyInfo(me: Member) {
+    await this.schedule();
+    const cfg = this.config();
+    const runs = this.sql
+      .exec<Record<string, any>>('SELECT * FROM runs ORDER BY started_at DESC LIMIT 6')
+      .toArray()
+      .map((r) => this.runRow(r, me.role === 'owner'));
+    return {
+      config: me.role === 'owner' ? cfg : { ...cfg, prompt: undefined },
+      nextRun: cfg.enabled ? nextRunAt(cfg) : null,
+      hasKey: !!this.env.ANTHROPIC_API_KEY,
+      runs,
+    };
+  }
+
+  private async saveConfig(body: Record<string, unknown>, me: Member) {
+    const cur = this.config();
+    const num = (v: unknown, lo: number, hi: number, d: number) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d;
+    };
+    const next: WeeklyConfig = {
+      enabled: body.enabled === undefined ? cur.enabled : !!body.enabled,
+      day: num(body.day ?? cur.day, 0, 6, cur.day),
+      hour: num(body.hour ?? cur.hour, 0, 23, cur.hour),
+      bands: Array.isArray(body.bands)
+        ? (body.bands as unknown[]).map((b) => String(b).trim()).filter(Boolean).slice(0, 10)
+        : cur.bands,
+      showsPerBand: num(body.showsPerBand ?? cur.showsPerBand, 1, 3, cur.showsPerBand),
+      newArtists: num(body.newArtists ?? cur.newArtists, 0, 5, cur.newArtists),
+      autoPublish: body.autoPublish === undefined ? cur.autoPublish : !!body.autoPublish,
+      prompt: typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.slice(0, 8000) : cur.prompt,
+      model: typeof body.model === 'string' && /^claude-[\w.-]+$/.test(body.model) ? body.model : cur.model,
+    };
+    if (body.resetPrompt) next.prompt = DEFAULT_CONFIG.prompt;
+    this.setMeta('weekly_config', JSON.stringify(next));
+    await this.ctx.storage.deleteAlarm();
+    await this.schedule();
+    return this.weeklyInfo(me);
+  }
+
+  private async requestRun(me: Member) {
+    if (!this.env.ANTHROPIC_API_KEY) throw new ApiError(400, 'No Anthropic API key on the server yet');
+    if (this.runningRun()) throw new ApiError(409, 'A run is already going. Give it a few minutes.');
+    this.setMeta('run_requested', 'manual');
+    await this.ctx.storage.setAlarm(Date.now() + 500);
+    return this.weeklyInfo(me);
+  }
+
+  /** The alarm: either the weekly schedule or a "Run now". */
+  async alarm() {
+    const trigger = this.getMeta('run_requested') ? 'manual' : 'weekly';
+    this.sql.exec("DELETE FROM meta WHERE key = 'run_requested'");
+    const cfg = this.config();
+    if ((trigger === 'weekly' && !cfg.enabled) || !this.env.ANTHROPIC_API_KEY || this.runningRun()) {
+      await this.schedule();
+      return;
+    }
+    const id = rid(8);
+    this.sql.exec("INSERT INTO runs (id, trigger, status, started_at) VALUES (?, ?, 'running', ?)", id, trigger, now());
+    try {
+      // Shows already picked in earlier weeks, so the list doesn't repeat itself.
+      const already = new Set<string>();
+      for (const r of this.sql.exec<{ picks: string }>("SELECT picks FROM runs WHERE picks IS NOT NULL ORDER BY started_at DESC LIMIT 8")) {
+        for (const p of JSON.parse(r.picks) as { artist: string; date: string | null }[])
+          if (p.date) already.add(`${p.artist} ${p.date}`);
+      }
+      const res = await curate(this.env.ANTHROPIC_API_KEY, cfg, [...already], this.env.ANTHROPIC_BASE_URL || undefined);
+      this.sql.exec(
+        "UPDATE runs SET status = 'ready', finished_at = ?, picks = ?, raw = ?, searches = ?, input_tokens = ?, output_tokens = ? WHERE id = ?",
+        now(),
+        JSON.stringify(res.picks),
+        res.raw,
+        res.searches,
+        res.inputTokens,
+        res.outputTokens,
+        id,
+      );
+    } catch (e) {
+      this.sql.exec(
+        "UPDATE runs SET status = 'error', finished_at = ?, error = ? WHERE id = ?",
+        now(),
+        e instanceof Error ? e.message.slice(0, 500) : 'Run failed',
+        id,
+      );
+    }
+    await this.schedule();
+  }
+
+  /** The newest finished run that hasn't become a playlist yet. */
+  private pendingRun(me: Member) {
+    const r = this.sql
+      .exec<Record<string, any>>("SELECT * FROM runs WHERE status = 'ready' ORDER BY started_at DESC LIMIT 1")
+      .toArray()[0];
+    if (!r) return { run: null };
+    const cfg = this.config();
+    return { run: this.runRow(r), autoPublish: cfg.autoPublish, canPublish: cfg.autoPublish || me.role === 'owner' };
+  }
+
+  /** One phone at a time turns a run into the playlist. A claim expires after 10 minutes. */
+  private claimRun(me: Member, id: string) {
+    const cfg = this.config();
+    if (!cfg.autoPublish && me.role !== 'owner') return { ok: false };
+    const r = this.sql.exec<Record<string, any>>("SELECT * FROM runs WHERE id = ? AND status = 'ready'", id).toArray()[0];
+    if (!r) return { ok: false };
+    if (r.claimed_by && r.claimed_by !== me.id && now() - Number(r.claimed_at) < 10 * 60000) return { ok: false };
+    this.sql.exec('UPDATE runs SET claimed_by = ?, claimed_at = ? WHERE id = ?', me.id, now(), id);
+    return { ok: true };
+  }
+
+  private publishRun(me: Member, body: Record<string, unknown>) {
+    const id = String(body.id);
+    const r = this.sql.exec<Record<string, any>>("SELECT * FROM runs WHERE id = ? AND status = 'ready'", id).toArray()[0];
+    if (!r) throw new ApiError(404, 'That run was already published');
+    if (r.claimed_by && r.claimed_by !== me.id && me.role !== 'owner') throw new ApiError(409, 'Someone else is publishing this week');
+    this.sql.exec(
+      "UPDATE runs SET status = 'published', playlist_id = ?, missed = ? WHERE id = ?",
+      String(body.playlistId ?? ''),
+      JSON.stringify(Array.isArray(body.missed) ? body.missed.slice(0, 20) : []),
+      id,
+    );
+    return { ok: true };
   }
 }

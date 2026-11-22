@@ -17,7 +17,8 @@ A shared **This Week** playlist for a small group of friends: the week's standou
 | Friends group, invite link, shared playlists | ✅ Live |
 | Paste-an-email importer (7/7 on the real email in testing) | ✅ Live, being tested on real data |
 | archive.org search + Gizz Tapes fallbacks | ✅ Live |
-| Next up | LivePhish or YouTube search, then Phase 4 (in-app weekly curation) |
+| Weekly picks in the app (Phase 4) | ✅ Built; first real run once the API key is added |
+| Next up | LivePhish or YouTube search, then Phase 5 (friends layer) |
 
 ## Decisions so far
 
@@ -73,7 +74,7 @@ Research findings: Relisten already matches phish.in for Phish (new shows in abo
 - Skipped: phish.in direct (same as Relisten), SoundCloud/Mixcloud/Audiomack (no jam content, closed APIs), keyless YouTube scraping (against ToS).
 - Reality: a show that exists only on nugs plays only for people with nugs, unless a YouTube copy exists.
 
-### Phase 4: Setlist curates the week itself (replaces the email)
+### Phase 4: Setlist curates the week itself (replaces the email) — built Nov 22, waiting on the API key for a real run
 The friend's prompt moves into Setlist. Once a week the server researches the week's standout shows and new artists, then builds **Week of <date>** with the highlight jams. Nobody pastes anything.
 
 - **Weekly schedule:** a Cloudflare cron trigger on the existing Worker (e.g. Monday 8am ET).
@@ -83,7 +84,7 @@ The friend's prompt moves into Setlist. Once a week the server researches the we
 - **Draft vs publish:** default is auto-publish. Optional "draft first" setting so the owner can glance at the picks before the group sees them.
 - **Run now:** a button to generate this week's list on demand (handy while tuning the prompt).
 - **Needs:** an Anthropic API key, stored as a Cloudflare secret, never in the repo. Rough cost: well under $1 a week (a few dozen web searches plus model usage). Estimate to confirm once built.
-- **Open design question:** the resolver runs in the browser today, and nugs matching needs a person's nugs login. Options: run Relisten/archive/YouTube matching on the server and let the owner's phone add nugs sources the next time it opens, or store the owner's nugs refresh token on the server. Decide when we build it.
+- **How it publishes:** the server does the research (Durable Object alarm = the weekly schedule, Claude + web search, picks stored as JSON). The first group member's app to open afterward claims the run and builds the playlist with its own resolver and logins, so nugs sources get included when Barry's phone does it. Draft mode: the owner reviews in Services → Weekly picks → Review & publish.
 - Paste-the-email stays as a manual fallback.
 
 ### Phase 5: The friends layer
@@ -101,6 +102,5 @@ The friend's prompt moves into Setlist. Once a week the server researches the we
 
 ## Open questions
 0. **Next build:** LivePhish (official Phish soundboards) or YouTube search (needs a free Google API key)?
-1. **Anthropic API key** for Phase 4 (pay-as-you-go at console.anthropic.com).
-2. **nugs on the server** for Phase 4: owner's phone fills in nugs sources, or store a nugs token server-side?
+1. **Anthropic API key** for Phase 4: add as repo secret ANTHROPIC_API_KEY, then rerun the server deploy.
 3. **Prompt v2:** refine the friend's prompt once the in-app version runs (more bands? fewer picks? song-level highlights required).

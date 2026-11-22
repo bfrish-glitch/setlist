@@ -73,7 +73,10 @@ export function Playlists() {
           return (
             <button key={p.id} className="row nav" onClick={() => setOpenId(p.id)}>
               <span className="track-text">
-                <span className="title">{p.name}</span>
+                <span className="title">
+                  {p.kind === 'weekly' ? '📅 ' : ''}
+                  {p.name}
+                </span>
                 <span className="sub">
                   {p.tracks.length} {p.tracks.length === 1 ? "track" : "tracks"}{p.createdBy ? ` · by ${p.createdBy}` : ''}{' '}
                   {counts.map(([s]) => (

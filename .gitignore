@@ -1,5 +1,8 @@
-node_modules
-dist
+.DS_Store
+.dev.vars
 .env
 .env.local
-.DS_Store
+.wrangler
+dist
+node_modules
+worker/.wrangler

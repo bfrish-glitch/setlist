@@ -15,6 +15,7 @@ export { Group } from './group';
 
 interface Env {
   GROUP: DurableObjectNamespace;
+  ANTHROPIC_API_KEY?: string;
 }
 
 const AUTH = 'https://id.nugs.net';

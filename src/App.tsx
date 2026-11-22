@@ -10,7 +10,8 @@ import { handleSpotifyRedirect, spotify } from './sources/spotify';
 import { youtube } from './sources/youtube';
 import { NugsLogin } from './components/NugsLogin';
 import { JoinSheet } from './components/GroupSheets';
-import { takeInviteFromUrl } from './group/group';
+import { group, takeInviteFromUrl } from './group/group';
+import { autoPublishIfReady } from './weekly/weekly';
 
 type Tab = 'browse' | 'playlists' | 'queue' | 'services';
 const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -42,6 +43,22 @@ export default function App() {
     // Load the YouTube player in the background so the first video starts fast.
     const t = setTimeout(() => youtube.warmUp(), 3000);
     return () => clearTimeout(t);
+  }, []);
+
+  // When the server has finished this week's picks, the first app to open builds the playlist.
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState !== 'visible' || !group.signedIn()) return;
+      void autoPublishIfReady((m) => setToast(m)).then((m) => m && setToast(m));
+    };
+    const t = setTimeout(check, 2500);
+    document.addEventListener('visibilitychange', check);
+    const unsub = group.subscribe(check);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('visibilitychange', check);
+      unsub();
+    };
   }, []);
 
   useEffect(() => {

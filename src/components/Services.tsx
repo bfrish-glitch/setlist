@@ -2,6 +2,7 @@ import { sourceOrder, sources } from '../sources';
 import { Header } from './common';
 import { useSourcesVersion } from '../sources/changes';
 import { GroupPanel } from './GroupPanel';
+import { WeeklyPanel } from './WeeklyPanel';
 
 const label = { ready: 'Ready', 'needs-login': 'Sign in', 'coming-soon': 'Coming soon' } as const;
 
@@ -12,6 +13,7 @@ export function Services(props: { onNugsLogin: () => void; onStartGroup: () => v
     <>
       <Header title="Services" />
       <GroupPanel onStart={props.onStartGroup} toast={props.toast} />
+      <WeeklyPanel toast={props.toast} />
       <div className="set-name">Your music services</div>
       <div className="list">
         {sourceOrder.map((id) => {
