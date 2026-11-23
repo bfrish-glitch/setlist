@@ -1,3 +1,4 @@
+import { PlayIcon } from './Icons';
 import { bestJamIndex } from '../resolve/text';
 import { useState, type ReactNode } from 'react';
 import type { Track } from '../types';
@@ -144,7 +145,7 @@ export function Import({ onAdd, switcher }: { onAdd: (t: Track[], suggestedName?
           </span>
           <div className="btns">
             <button className="primary" disabled={!selected.length || pending > 0} onClick={() => player.playQueue(selected, 0)}>
-              ▶ Play
+              <PlayIcon size={14} /> Play
             </button>
             <button
               disabled={!selected.length || pending > 0}

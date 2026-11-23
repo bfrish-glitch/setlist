@@ -1,3 +1,4 @@
+import { LoadingIcon, NextIcon, PauseIcon, PlayIcon, PrevIcon } from './Icons';
 import { player, usePlayer } from '../player/engine';
 import { resolve } from '../sources';
 import { SourceBadge, fmt } from './common';
@@ -46,13 +47,13 @@ export function NowPlaying({ onOpenQueue }: { onOpenQueue: () => void }) {
         </div>
         <div className="controls">
           <button className="icon" onClick={() => player.prev()} aria-label="Previous">
-            ⏮
+            <PrevIcon />
           </button>
           <button className="icon big" onClick={() => player.toggle()} aria-label={s.playing ? 'Pause' : 'Play'}>
-            {s.loading ? '…' : s.playing ? '⏸' : '▶'}
+            {s.loading ? <LoadingIcon size={20} /> : s.playing ? <PauseIcon size={20} /> : <PlayIcon size={20} />}
           </button>
           <button className="icon" onClick={() => player.next()} aria-label="Next">
-            ⏭
+            <NextIcon />
           </button>
         </div>
       </div>

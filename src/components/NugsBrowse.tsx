@@ -1,3 +1,4 @@
+import { PlayIcon } from './Icons';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Track } from '../types';
 import { nugs, nugsApi, nugsToTrack, type NugsArtist, type NugsShow } from '../sources/nugs';
@@ -169,7 +170,7 @@ function Show({ show, onBack, onAdd }: { show: NugsShow; onBack: () => void; onA
         <div className="sub">{info.venue || info.title}</div>
         <div className="btns">
           <button className="primary" disabled={!all.length} onClick={() => player.playQueue(all, 0)}>
-            ▶ Play show
+            <PlayIcon size={14} /> Play show
           </button>
           <button disabled={!all.length} onClick={() => onAdd(all)}>
             + Add all to playlist

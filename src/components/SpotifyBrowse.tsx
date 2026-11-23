@@ -1,3 +1,4 @@
+import { PlayIcon } from './Icons';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Track } from '../types';
 import { spotify, spotifyApi, spotifyToTrack, type SpotifyPlaylist } from '../sources/spotify';
@@ -127,7 +128,7 @@ function TrackList({ load, deps, onAdd }: { load: () => Promise<import('../sourc
         <div className="show-head">
           <div className="btns">
             <button className="primary" onClick={() => player.playQueue(data, 0)}>
-              ▶ Play all
+              <PlayIcon size={14} /> Play all
             </button>
             <button onClick={() => onAdd(data)}>+ Add all to playlist</button>
           </div>

@@ -338,3 +338,12 @@ body.yt-on main { padding-bottom: calc(var(--tabs-h) + 96px + min(calc(100vw - 2
 .copy-row code { font-family: 'Space Mono', monospace; font-size: 12px; background: rgba(255,255,255,0.06); padding: 3px 6px; border-radius: 6px; overflow-wrap: anywhere; }
 .own-form { display: flex; gap: 6px; margin: 4px 0 8px; }
 .own-form input { flex: 1; min-width: 0; font: inherit; padding: 7px 9px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+
+/* Transport icons */
+.controls .icon { color: var(--text); }
+.controls .icon:active { transform: scale(0.92); }
+.controls .icon.big { display: inline-grid; place-items: center; box-shadow: 0 4px 14px rgba(255, 138, 61, 0.35); }
+.controls .icon.big svg { margin-left: 0; }
+.controls .icon.big .spin, .spin { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+button svg { flex: none; vertical-align: -2px; }

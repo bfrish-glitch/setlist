@@ -1,3 +1,4 @@
+import { PlayIcon } from './Icons';
 import { useRef, useState } from 'react';
 import { playlists, usePlaylists } from '../store/playlists';
 import { player, usePlayer } from '../player/engine';
@@ -159,7 +160,7 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
         )}
         <div className="btns">
           <button className="primary" disabled={!p.tracks.length} onClick={() => player.playQueue(p.tracks, 0)}>
-            ▶ Play
+            <PlayIcon size={14} /> Play
           </button>
           <button
             disabled={!p.tracks.length}

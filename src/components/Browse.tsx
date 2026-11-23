@@ -1,3 +1,4 @@
+import { PlayIcon } from './Icons';
 import { useMemo, useState, type ReactNode } from 'react';
 import { SpotifyBrowse } from './SpotifyBrowse';
 import { NugsBrowse } from './NugsBrowse';
@@ -242,7 +243,7 @@ function Show(props: { artist: RelistenArtist; show: RelistenShow; onBack: () =>
         )}
         <div className="btns">
           <button className="primary" disabled={!all.length} onClick={() => player.playQueue(all, 0)}>
-            ▶ Play show
+            <PlayIcon size={14} /> Play show
           </button>
           <button disabled={!all.length} onClick={() => props.onAdd(all)}>
             + Add all to playlist
