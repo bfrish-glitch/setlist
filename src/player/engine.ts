@@ -26,14 +26,55 @@ const initial: PlayerState = {
   skipped: [],
 };
 
+/** Where you were, so reopening the app picks up the same song at the same spot. */
+const SAVE_KEY = 'setlist.player';
+interface Saved {
+  queue: Track[];
+  index: number;
+  positionSec: number;
+  durationSec: number;
+  savedAt: number;
+}
+function loadSaved(): PlayerState {
+  try {
+    const s = JSON.parse(localStorage.getItem(SAVE_KEY) ?? 'null') as Saved | null;
+    if (!s || !Array.isArray(s.queue) || s.index < 0 || s.index >= s.queue.length) return initial;
+    return { ...initial, queue: s.queue, index: s.index, positionSec: s.positionSec || 0, durationSec: s.durationSec || 0 };
+  } catch {
+    return initial;
+  }
+}
+
 /**
  * The conductor. Holds the queue and hands each track to the adapter for its
  * service. Switching services means: stop the old adapter, start the new one.
  */
 class PlayerEngine {
-  private state: PlayerState = initial;
+  private state: PlayerState = loadSaved();
   private listeners = new Set<() => void>();
   private token = 0; // guards against late events from a track we already left
+  /** A restored track isn't loaded into its service yet; the first play loads it at this spot. */
+  private restored = this.state.index >= 0;
+  /** Seek here once the track actually starts playing. */
+  private startAt = 0;
+  private lastSave = 0;
+
+  /** Save the queue and spot (throttled unless forced). */
+  save(force = false) {
+    const now = Date.now();
+    if (!force && now - this.lastSave < 5000) return;
+    this.lastSave = now;
+    const { queue, index, positionSec, durationSec } = this.state;
+    try {
+      if (index < 0 || !queue.length) localStorage.removeItem(SAVE_KEY);
+      else {
+        const slim = queue.map(({ social: _s, ...t }) => t);
+        localStorage.setItem(SAVE_KEY, JSON.stringify({ queue: slim, index, positionSec, durationSec, savedAt: now } satisfies Saved));
+      }
+    } catch {
+      /* storage full or unavailable */
+    }
+  }
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -59,6 +100,7 @@ class PlayerEngine {
     // from Spotify to Relisten/nugs can start without another tap.
     sharedAudio.prime();
     this.stopCurrent();
+    this.restored = false;
     this.set({ queue, index: -1, skipped: [], error: null });
     void this.goTo(startIndex, 1);
   }
@@ -73,16 +115,29 @@ class PlayerEngine {
   toggle() {
     const t = this.current;
     if (!t) return;
+    if (this.restored) {
+      // First play after reopening: load the saved song and jump to where you were.
+      sharedAudio.prime();
+      this.restored = false;
+      void this.goTo(this.state.index, 1, this.state.positionSec);
+      return;
+    }
     const a = sources[t.source];
     if (this.state.playing) a.pause();
     else a.resume();
   }
 
   next() {
+    this.restored = false;
     void this.goTo(this.state.index + 1, 1);
   }
 
   prev() {
+    if (this.restored) {
+      this.restored = false;
+      if (this.state.positionSec > 4 || this.state.index <= 0) return void this.goTo(this.state.index, 1);
+      return void this.goTo(this.state.index - 1, -1);
+    }
     // Standard player behavior: restart the song unless we're near the top.
     if (this.state.positionSec > 4 || this.state.index <= 0) {
       this.seek(0);
@@ -94,21 +149,25 @@ class PlayerEngine {
   seek(sec: number) {
     const t = this.current;
     if (!t) return;
-    sources[t.source].seek(sec);
+    // Not loaded yet (just reopened): move the resume point instead.
+    if (!this.restored) sources[t.source].seek(sec);
     this.set({ positionSec: sec });
+    this.save(true);
   }
 
   jump(index: number) {
+    this.restored = false;
     void this.goTo(index, 1);
   }
 
   private stopCurrent() {
+    if (this.restored) return;
     const t = this.current;
     if (t) sources[t.source].stop();
   }
 
   /** Move to `index`, walking in `dir` past tracks we can't play. */
-  private async goTo(index: number, dir: 1 | -1) {
+  private async goTo(index: number, dir: 1 | -1, startAt = 0) {
     const { queue } = this.state;
     const skipped = [...this.state.skipped];
     let i = index;
@@ -126,11 +185,12 @@ class PlayerEngine {
     }
 
     const track = resolve(queue[i])!;
+    this.startAt = i === index ? startAt : 0;
     this.set({
       index: i,
       loading: true,
       playing: false,
-      positionSec: 0,
+      positionSec: this.startAt,
       durationSec: track.durationSec ?? 0,
       error: null,
       skipped,
@@ -139,15 +199,27 @@ class PlayerEngine {
     const live = () => token === this.token;
     try {
       await sources[track.source].play(track, {
-        onTime: (positionSec, durationSec) =>
-          live() && this.set({ positionSec, durationSec: durationSec || this.state.durationSec }),
+        onTime: (positionSec, durationSec) => {
+          if (!live() || this.startAt) return; // ignore the 0:00 ticks before the resume seek lands
+          this.set({ positionSec, durationSec: durationSec || this.state.durationSec });
+          this.save();
+        },
         onEnded: () => live() && this.next(),
         onError: (msg) => {
           if (!live()) return;
           this.set({ error: `${track.title}: ${msg}`, loading: false });
           setTimeout(() => live() && this.next(), 1500);
         },
-        onPlayingChange: (playing) => live() && this.set({ playing, loading: false }),
+        onPlayingChange: (playing) => {
+          if (!live()) return;
+          if (playing && this.startAt) {
+            const at = this.startAt;
+            this.startAt = 0;
+            sources[track.source].seek(at);
+          }
+          this.set({ playing, loading: false });
+          this.save(true);
+        },
       });
     } catch (e) {
       if (!live()) return;
@@ -198,6 +270,11 @@ class PlayerEngine {
 
 export const player = new PlayerEngine();
 player.installMediaHandlers();
+// Phones can kill a backgrounded app without warning, so save on the way out.
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => player.save(true));
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && player.save(true));
+}
 
 export function usePlayer() {
   return useSyncExternalStore(player.subscribe, player.get);
