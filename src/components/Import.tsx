@@ -1,3 +1,4 @@
+import { bestJamIndex } from '../resolve/text';
 import { useState, type ReactNode } from 'react';
 import type { Track } from '../types';
 import { resolvePick, type Pick } from '../resolve/resolve';
@@ -14,13 +15,7 @@ import { ensureFreeSource } from '../sources/ytsearch';
 type Choice = number | 'all'; // song index, or the full show
 
 /** Longest song in the show: for jam bands that's almost always the big jam. */
-function longest(p: Pick) {
-  let best = 0;
-  p.tracks.forEach((t, i) => {
-    if ((t.durationSec ?? 0) > (p.tracks[best].durationSec ?? 0)) best = i;
-  });
-  return best;
-}
+const longest = (p: Pick) => bestJamIndex(p.tracks);
 
 /**
  * What goes in the playlist when nobody picked: the song the email names,

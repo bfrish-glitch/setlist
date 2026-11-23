@@ -1,3 +1,4 @@
+import { bestJamIndex } from '../resolve/text';
 import { api, group } from '../group/group';
 import { playlists } from '../store/playlists';
 import { resolvePick, type Pick } from '../resolve/resolve';
@@ -162,13 +163,7 @@ export async function resolveWeeklyPick(p: WeeklyPick): Promise<Pick> {
   return last!;
 }
 
-function longestIndex(p: Pick) {
-  let best = 0;
-  p.tracks.forEach((t, i) => {
-    if ((t.durationSec ?? 0) > (p.tracks[best].durationSec ?? 0)) best = i;
-  });
-  return best;
-}
+const longestIndex = (p: Pick) => bestJamIndex(p.tracks);
 
 /** One song per pick: the named highlight, else the longest track; the curator's reason as the note. */
 export function songsFor(p: Pick): Track[] {

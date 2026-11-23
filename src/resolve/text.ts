@@ -235,3 +235,18 @@ export function splitInput(raw: string): RawPick[] {
   flushPending();
   return out;
 }
+
+/** Tape filler that isn't a song: set/encore breaks, tuning, banter, crowd, intros. */
+const NON_SONG =
+  /\b(encore|set)\s*-?\s*break\b|^setbreak|^intermission|^tuning|banter|^crowd(\s+(noise|chatter))?$|applause|^(band\s+)?intro(duction)?s?$|^soundcheck|tape\s*(flip|change|cut)|^dead\s*air|^silence$|announcement|^pre-?show|^post-?show|^outro$|^encore$|^\W*$/i;
+export const isNonSong = (title: string) => NON_SONG.test(title.trim());
+
+/** The show's big jam when nobody named one: the longest real song; if no durations, the first real song. */
+export function bestJamIndex(tracks: { title: string; durationSec?: number | null }[]) {
+  let best = -1;
+  tracks.forEach((t, i) => {
+    if (isNonSong(t.title)) return;
+    if (best < 0 || (t.durationSec ?? 0) > (tracks[best].durationSec ?? 0)) best = i;
+  });
+  return best < 0 ? 0 : best;
+}

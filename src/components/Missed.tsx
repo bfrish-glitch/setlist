@@ -1,3 +1,4 @@
+import { bestJamIndex } from '../resolve/text';
 import { useState } from 'react';
 import type { Playlist, Track } from '../types';
 import { resolvePick, type Pick } from '../resolve/resolve';
@@ -139,10 +140,4 @@ export function MissedSheet({ week, onClose }: { week: Playlist; onClose: () => 
   );
 }
 
-function longest(tracks: Track[]) {
-  let best = 0;
-  tracks.forEach((t, i) => {
-    if ((t.durationSec ?? 0) > (tracks[best].durationSec ?? 0)) best = i;
-  });
-  return best;
-}
+const longest = (tracks: Track[]) => bestJamIndex(tracks);

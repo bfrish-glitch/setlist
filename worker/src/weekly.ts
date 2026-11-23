@@ -151,7 +151,7 @@ Also report every candidate show you looked at in "considered", with picked or p
 
 Do not repeat these shows from previous weeks: {{already}}`;
 
-export const DEFAULT_PROMPT = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
+export const DEFAULT_PROMPT_V6 = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
 
 Below is a CANDIDATE LIST gathered automatically this morning: recap and review headlines from music sites, and the shows watchlist bands played (from tape archives). Treat every show it mentions as a candidate. It can miss things, so you may add shows you find yourself.
 
@@ -175,6 +175,30 @@ Also report every candidate show you looked at in "considered", with picked or p
 
 Do not repeat these shows from previous weeks: {{already}}`;
 
+export const DEFAULT_PROMPT = `Today is {{today}}. Curate a weekly listen list of the best live jam-band and bluegrass/jamgrass performances played between {{windowStart}} and {{today}} (inclusive). Nothing outside that window.
+
+Below is a CANDIDATE LIST gathered automatically this morning: recap and review headlines from music sites, and the shows watchlist bands played (from tape archives). Treat every show it mentions as a candidate. It can miss things, so you may add shows you find yourself.
+
+{{candidates}}
+
+BUDGET: at most 6 web searches and 8 page fetches.
+
+STEP 1: From the candidate list, write down every distinct show in the window (artist + date + city). Headlines usually name the band and city; use the shows list or the article to pin the date. Don't drop a show just because only a headline mentions it.
+
+STEP 2: Read the most promising coverage. Fetch up to 6 recap/review pages from the list (prefer ones that single out a jam or call a show a standout), plus https://elgoose.net/reviews/ if Goose played and https://phish.net/ if Phish or Trey Anastasio Band played. Use searches only to find fan or critical takes on your top candidates, and to check watchlist bands with no coverage at all: {{watchlist}}.
+
+STEP 3: Score each candidate.
+Strong: 2+ independent sources praise the same show or jam; fan reviews say "best of tour"; a reviewer singles out a jam over about 18 minutes; jam-chart inclusion; a big guest sit-in that reviewers rave about.
+Medium: notable segues or sandwiches, a bust-out after a gap of more than about 100 shows, a debut, a meaningful guest.
+Weak: one descriptive press recap, band PR, livestream promotion.
+Negative: "flat", "sloppy", "choppy", "lacked direction", "didn't go deep", "cover-heavy", a cut set. Downgrade the show, or use only its praised segment.
+
+STEP 4: Aim for {{picks}} picks. Fill the list in this order: strong, then medium, then solid shows backed by one good recap, then [curio] picks: shows with no written recap yet but a real signal (fan raves, a big guest sit-in, a debut or long bust-out, a notable segue on the setlist). "No recap found" alone is not a reason to pass while you're under the target; only pass on shows people panned or that have no signal at all. Every pick needs a highlight song whenever a setlist or recap exists: the specific jam the sources praise, or, if they praise the whole show, its standout jam from the setlist (never a set break, tuning or banter). Set highlight to null only when no setlist is published yet. Rules: at most {{maxPerBand}} per band{{bandLimits}}; a band limited to 1 only makes the list with a [consensus] show (otherwise leave it off); at least 1 bluegrass/jamgrass pick when one qualifies; and up to {{newArtists}} emerging artist backed by two sources. For each pick name ONE highlight song (the specific jam the sources praise), explain why in one or two sentences crediting the sources, note any critical remarks as caveats, include the best review URL, and name the likely listen source (nugs/LivePhish, archive.org/Relisten, phish.in, tapes.kglw.net, YouTube, Bandcamp). Start the why with the strength in brackets: [consensus], [solid] or [curio]. Don't spend searches verifying listen links. Never include a show people panned.
+
+Also report every candidate show you looked at in "considered", with picked or passed and a few words on why.
+
+Do not repeat these shows from previous weeks: {{already}}`;
+
 const OUTPUT_RULES = `
 
 When you're done researching, reply with ONLY a JSON object inside <picks></picks> tags, no other text, in exactly this shape:
@@ -182,7 +206,7 @@ When you're done researching, reply with ONLY a JSON object inside <picks></pick
 Then, after the picks list but inside the same JSON object, add "considered":[{"artist":"Goose","date":"2026-11-19","decision":"passed","reason":"Goose limit: 11/20 had stronger reviews"}] covering every candidate show you evaluated (picked or passed), at most 30.
 Rules: date is YYYY-MM-DD or null; highlight is the exact song title as it appears on setlists, or null; put the most directly playable link first, then the review link.`;
 
-export const PROMPT_VERSION = 6;
+export const PROMPT_VERSION = 7;
 
 export const DEFAULT_CONFIG: WeeklyConfig = {
   enabled: true,
@@ -217,7 +241,7 @@ export function upgradeConfig(saved: Partial<WeeklyConfig> & { bands?: string[];
   const cfg = { ...DEFAULT_CONFIG, ...saved } as WeeklyConfig & { bands?: string[]; showsPerBand?: number };
   if (!saved.promptVersion || saved.promptVersion < PROMPT_VERSION) {
     // Keep a prompt the owner wrote themselves; replace an untouched old default.
-    if (!saved.prompt || saved.prompt === DEFAULT_PROMPT_V1 || saved.prompt === DEFAULT_PROMPT_V2 || saved.prompt === DEFAULT_PROMPT_V3 || saved.prompt === DEFAULT_PROMPT_V4 || saved.prompt === DEFAULT_PROMPT_V5) cfg.prompt = DEFAULT_PROMPT;
+    if (!saved.prompt || saved.prompt === DEFAULT_PROMPT_V1 || saved.prompt === DEFAULT_PROMPT_V2 || saved.prompt === DEFAULT_PROMPT_V3 || saved.prompt === DEFAULT_PROMPT_V4 || saved.prompt === DEFAULT_PROMPT_V5 || saved.prompt === DEFAULT_PROMPT_V6) cfg.prompt = DEFAULT_PROMPT;
     // Side B handles new artists now; don't double up on Mondays.
     if ((saved.promptVersion ?? 0) < 3) cfg.newArtists = 0;
     cfg.promptVersion = PROMPT_VERSION;
